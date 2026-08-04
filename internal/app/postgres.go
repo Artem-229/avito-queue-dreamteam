@@ -14,8 +14,16 @@ import (
 
 const migrationsDir = "migrations"
 
-func newPostgresPool(ctx context.Context, cfg *config.Database) (*pgxpool.Pool, error) {
+type Repositories struct {
+	pool *pgxpool.Pool
+}
+
+func newRepositories(ctx context.Context, cfg *config.Database) (*Repositories, error) {
 	connstr := buildDSN(cfg)
+
+	if err := runMigrations(ctx, connstr); err != nil {
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
 
 	pool, err := pgxpool.New(ctx, connstr)
 	if err != nil {
@@ -27,11 +35,13 @@ func newPostgresPool(ctx context.Context, cfg *config.Database) (*pgxpool.Pool, 
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	return pool, nil
+	return &Repositories{
+		pool: pool,
+	}, nil
 }
 
-func runMigrations(ctx context.Context, cfg *config.Database) error {
-	db, err := sql.Open("pgx", buildDSN(cfg))
+func runMigrations(ctx context.Context, connstr string) error {
+	db, err := sql.Open("pgx", connstr)
 	if err != nil {
 		return fmt.Errorf("open migrations connection: %w", err)
 	}

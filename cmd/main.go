@@ -18,8 +18,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.SetLogLoggerLevel(slog.Level(conf.Logger.Level))
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 

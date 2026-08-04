@@ -5,41 +5,47 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"avito-queue/internal/config"
+
+	"github.com/lmittmann/tint"
 )
 
 const shutdownTimeout = 5 * time.Second
 
 type App struct {
-	pool       *pgxpool.Pool
-	httpServer *rest.Server
+	repositories *Repositories
+	httpServer   *rest.Server
+	logger       *slog.Logger
 }
 
 func New(ctx context.Context, conf *config.Config) (*App, error) {
-	pool, err := newPostgresPool(ctx, conf.Database)
+	logger := slog.New(tint.NewTextHandler(os.Stdout, &tint.Options{
+		Level:      slog.Level(conf.Logger.Level),
+		TimeFormat: time.DateTime,
+	}))
+
+	repos, err := newRepositories(ctx, conf.Database)
 	if err != nil {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
-	}
-
-	if err := runMigrations(ctx, conf.Database); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
 	server := rest.NewServer(conf)
 
 	return &App{
-		pool:       pool,
-		httpServer: server,
+		repositories: repos,
+		httpServer:   server,
+		logger:       logger,
 	}, nil
 }
 
 func (a *App) Run(ctx context.Context) error {
+	a.logger.Info("starting application")
+
 	errChan := make(chan error, 1)
 
 	go func() {
@@ -52,13 +58,19 @@ func (a *App) Run(ctx context.Context) error {
 
 	select {
 	case err := <-errChan:
-		a.pool.Close()
 		return err
 	case <-ctx.Done():
-		_, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		a.logger.Info("shutting down, please wait...")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
-		a.pool.Close()
+		if err := a.httpServer.Stop(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown http server: %w", err)
+		}
+
+		a.repositories.pool.Close()
+
 		return nil
 	}
 }

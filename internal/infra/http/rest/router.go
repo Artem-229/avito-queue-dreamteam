@@ -6,10 +6,10 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func NewRouter() *chi.Mux {
+func NewRouter(h *handlers.Handlers) *chi.Mux {
 	router := chi.NewRouter()
 
-	router.Get("/health", handlers.HealthHandler)
+	router.Get("/health", h.Health)
 
 	return router
 }

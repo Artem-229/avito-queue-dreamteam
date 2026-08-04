@@ -8,27 +8,27 @@ import (
 )
 
 type Config struct {
-	Logger     *Logger     `mapstructure:"logger" validate:"required"`
-	HTTPServer *HTTPServer `mapstructure:"http_server" validate:"required"`
-	Database   *Database   `mapstructure:"database" validate:"required"`
+	Logger     *Logger     `mapstructure:"logger"`
+	HTTPServer *HTTPServer `mapstructure:"http_server"`
+	Database   *Database   `mapstructure:"database"`
 }
 
 type Logger struct {
-	Level int `mapstructure:"level" validate:"required"`
+	Level int `mapstructure:"level"`
 }
 
 type HTTPServer struct {
 	Host string `mapstructure:"host"`
-	Port int    `mapstructure:"port" validate:"required"`
+	Port int    `mapstructure:"port"`
 }
 
 type Database struct {
-	Host     string `mapstructure:"host" validate:"required"`
-	Port     int    `mapstructure:"port" validate:"required"`
-	User     string `mapstructure:"user" validate:"required"`
-	Password string `mapstructure:"password" validate:"required"`
-	Name     string `mapstructure:"name" validate:"required"`
-	SSLMode  string `mapstructure:"sslmode"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+	Name     string `mapstructure:"name"`
+	SSLMode  string `mapstructure:"ssl_mode"`
 }
 
 func ReadConfig() (*Config, error) {
