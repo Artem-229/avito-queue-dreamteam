@@ -3,6 +3,18 @@ import { create } from 'zustand';
 const STORAGE_KEY = 'avito-queue-user';
 const DEFAULT_USER = 'user-1';
 
+export interface DemoUser {
+  id: string;
+  name: string;
+  emoji: string;
+}
+
+export const DEMO_USERS: DemoUser[] = [
+  { id: 'user-1', name: 'Аня', emoji: '🅰️' },
+  { id: 'user-2', name: 'Борис', emoji: '🅱️' },
+  { id: 'user-3', name: 'Вера', emoji: '🆅' },
+];
+
 function readInitialUser(): string {
   try {
     return localStorage.getItem(STORAGE_KEY) ?? DEFAULT_USER;

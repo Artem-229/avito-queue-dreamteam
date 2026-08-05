@@ -18,6 +18,7 @@ export {
 export {
   queueKeys,
   useEntry,
+  useLiveEntry,
   useEntryByItem,
   useJoinQueue,
   useLeaveQueue,

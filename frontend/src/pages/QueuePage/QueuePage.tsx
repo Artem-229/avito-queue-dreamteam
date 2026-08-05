@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom';
 
-import { useEntry } from '@/entities/queue-entry';
+import { useLiveEntry } from '@/entities/queue-entry';
 import { Skeleton } from '@/shared/ui';
 
 import { QueueExpired } from './views/QueueExpired';
@@ -12,7 +12,7 @@ import styles from './QueuePage.module.css';
 
 export function QueuePage() {
   const entryId = useParams().entryId ?? '';
-  const { data: entry, isLoading, isError } = useEntry(entryId);
+  const { data: entry, isLoading, isError } = useLiveEntry(entryId);
 
   if (isError) {
     return <p className={styles.error}>Запись очереди не найдена.</p>;

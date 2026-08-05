@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 
 import { ROUTES } from '@/app/routes';
+import { UserSwitcher } from '@/features/user-switcher';
 
 import { Logo } from './Logo';
 import styles from './Header.module.css';
@@ -14,6 +15,7 @@ export function Header() {
         </Link>
 
         <div className={styles.right}>
+          <UserSwitcher />
           {import.meta.env.DEV && (
             <Link to="/ui-kit" className={styles.devLink}>
               UI-kit
