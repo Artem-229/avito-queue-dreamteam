@@ -6,3 +6,5 @@ export { ProgressBar } from './ProgressBar/ProgressBar';
 export { CountdownTimer } from './CountdownTimer/CountdownTimer';
 export { Skeleton } from './Skeleton/Skeleton';
 export { Modal } from './Modal/Modal';
+export { Toaster } from './Toast/Toaster';
+export { showToast } from './Toast/toastStore';
