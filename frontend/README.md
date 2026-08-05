@@ -41,6 +41,23 @@ src/
 
 Направление импортов: `pages → widgets → features → entities → shared`.
 
+## Моки (MSW)
+
+В dev-режиме API по умолчанию обслуживают моки на Mock Service Worker — фронт
+работает без бэкенда. Один раз нужно сгенерировать service worker:
+
+```bash
+npx msw init public --save
+```
+
+Движок очереди (`src/mocks/queue-engine.ts`) симулирует ботов впереди пользователя,
+выдачу права на покупку по одному за раз, списание стока и переходы
+`QUEUED → GRANTED → PURCHASED | EXPIRED | SOLD_OUT`. Каталог и сценарии — в
+`src/mocks/data.ts`.
+
+Отключить моки и работать с реальным бэкендом: `VITE_ENABLE_MOCKS=false npm run dev`
+(или переменная в `.env.local`).
+
 ## Прокси и API
 
 Дев-сервер проксирует `/api` на `http://localhost:8080` (бэкенд Go). В проде тем же

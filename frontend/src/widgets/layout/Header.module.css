@@ -26,6 +26,17 @@
   align-items: center;
 }
 
+.devLink {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
+}
+
+.devLink:hover {
+  color: var(--color-blue);
+}
+
 .badge {
   padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-xs);

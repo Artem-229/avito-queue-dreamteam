@@ -14,6 +14,11 @@ export function Header() {
         </Link>
 
         <div className={styles.right}>
+          {import.meta.env.DEV && (
+            <Link to="/ui-kit" className={styles.devLink}>
+              UI-kit
+            </Link>
+          )}
           <span className={styles.badge}>MVP</span>
         </div>
       </div>
