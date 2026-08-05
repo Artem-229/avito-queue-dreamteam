@@ -29,10 +29,12 @@ func New(ctx context.Context, conf *config.Config) (*App, error) {
 		TimeFormat: time.DateTime,
 	}))
 
-	repos, err := newRepositories(ctx, conf.Database)
+	repos, err := NewRepositories(ctx, conf.Database)
 	if err != nil {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}
+
+	_ = NewUsecases(ctx, repos)
 
 	server := rest.NewServer(conf)
 

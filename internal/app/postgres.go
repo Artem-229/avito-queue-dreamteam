@@ -1,29 +1,23 @@
 package app
 
 import (
+	purchaseright "avito-queue/internal/infra/postgres/repository/purchase_right"
 	"context"
-	"database/sql"
 	"fmt"
+
+	"avito-queue/internal/config"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
-
-	"avito-queue/internal/config"
 )
 
-const migrationsDir = "migrations"
-
 type Repositories struct {
-	pool *pgxpool.Pool
+	PurchaseRightRepo *purchaseright.RightRepo
+	pool              *pgxpool.Pool
 }
 
-func newRepositories(ctx context.Context, cfg *config.Database) (*Repositories, error) {
+func NewRepositories(ctx context.Context, cfg *config.Database) (*Repositories, error) {
 	connstr := buildDSN(cfg)
-
-	if err := runMigrations(ctx, connstr); err != nil {
-		return nil, fmt.Errorf("run migrations: %w", err)
-	}
 
 	pool, err := pgxpool.New(ctx, connstr)
 	if err != nil {
@@ -35,29 +29,12 @@ func newRepositories(ctx context.Context, cfg *config.Database) (*Repositories, 
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
+	purchaseRightRepo := purchaseright.NewRightRepo(pool)
+
 	return &Repositories{
-		pool: pool,
+		PurchaseRightRepo: purchaseRightRepo,
+		pool:              pool,
 	}, nil
-}
-
-func runMigrations(ctx context.Context, connstr string) error {
-	db, err := sql.Open("pgx", connstr)
-	if err != nil {
-		return fmt.Errorf("open migrations connection: %w", err)
-	}
-	defer func() {
-		_ = db.Close()
-	}()
-
-	if err := goose.SetDialect("postgres"); err != nil {
-		return fmt.Errorf("set goose dialect: %w", err)
-	}
-
-	if err := goose.UpContext(ctx, db, migrationsDir); err != nil {
-		return fmt.Errorf("apply migrations: %w", err)
-	}
-
-	return nil
 }
 
 func buildDSN(cfg *config.Database) string {
