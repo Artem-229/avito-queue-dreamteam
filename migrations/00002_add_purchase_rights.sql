@@ -2,7 +2,7 @@
 -- +goose StatementBegin
 CREATE TABLE purchase_rights (
     id_purchase     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    id_item         UUID NOT NULL REFERENCES items(id_item) ON DELET CASCADE,
+    id_item         UUID NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
     id_user         UUID NOT NULL,
     purchase_status VARCHAR(20) NOT NULL CHECK (purchase_status IN ('granted', 'used', 'cancelled', 'expired')),
     expires_at      TIMESTAMPTZ NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE purchase_rights (
 );
 
 CREATE INDEX idx_purchase_rights_user_item_status
-    ON purchase_rights (id_user, id_item, purchase_status)
+    ON purchase_rights (id_user, id_item, purchase_status);
 
 -- +goose StatementEnd
 

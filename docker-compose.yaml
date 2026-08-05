@@ -21,5 +21,17 @@ services:
       timeout: 5s
       retries: 5
 
+  migrator:
+    image: ghcr.io/kukymbr/goose-docker:latest
+    container_name: avito-queue-migrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: host=postgres port=5432 user=postgres password=postgres dbname=avito_queue sslmode=disable
+
 volumes:
   postgres_data:
