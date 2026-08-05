@@ -1,0 +1,10 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.main {
+  flex: 1;
+  padding-block: var(--space-6);
+}
