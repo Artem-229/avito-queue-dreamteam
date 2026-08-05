@@ -33,5 +33,28 @@ services:
       GOOSE_DRIVER: postgres
       GOOSE_DBSTRING: host=postgres port=5432 user=postgres password=postgres dbname=avito_queue sslmode=disable
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: avito-queue-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: avito_queue
+      CONFIG_PATH: "configs/configuration.yaml"
+    volumes:
+      - ./configs:/app/configs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
