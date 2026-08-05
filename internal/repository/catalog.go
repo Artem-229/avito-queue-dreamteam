@@ -11,8 +11,8 @@ import (
 )
 
 type CatalogRepository interface {
-	GetItems(ctx context.Context) ([]entity.CatalogItem, error)
-	GetItemByID(ctx context.Context, id string) (entity.CatalogItem, error)
+	GetItems(ctx context.Context) ([]domain.CatalogItem, error)
+	GetItemByID(ctx context.Context, id string) (domain.CatalogItem, error)
 }
 
 type catalogRepo struct {
@@ -23,7 +23,7 @@ func NewCatalogRepository(db *pgxpool.Pool) CatalogRepository {
 	return &catalogRepo{db: db}
 }
 
-func (r *catalogRepo) GetItems(ctx context.Context) ([]entity.CatalogItem, error) {
+func (r *catalogRepo) GetItems(ctx context.Context) ([]domain.CatalogItem, error) {
 	query := `
 		SELECT id, name, price, total_stock, created_at, deleted_at
 		FROM catalog_items
@@ -37,9 +37,9 @@ func (r *catalogRepo) GetItems(ctx context.Context) ([]entity.CatalogItem, error
 	}
 	defer rows.Close()
 
-	var items []entity.CatalogItem
+	var items []domain.CatalogItem
 	for rows.Next() {
-		var item entity.CatalogItem
+		var item domain.CatalogItem
 		err := rows.Scan(
 			&item.ID,
 			&item.Name,
@@ -61,14 +61,14 @@ func (r *catalogRepo) GetItems(ctx context.Context) ([]entity.CatalogItem, error
 	return items, nil
 }
 
-func (r *catalogRepo) GetItemByID(ctx context.Context, id string) (entity.CatalogItem, error) {
+func (r *catalogRepo) GetItemByID(ctx context.Context, id string) (domain.CatalogItem, error) {
 	query := `
 	SELECT id, name, price, total_stock, created_at, deleted_at
 	FROM catalog_items
 	WHERE id = $1 AND deleted_at IS NULL
 	`
 
-	var item entity.CatalogItem
+	var item domain.CatalogItem
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&item.ID,
 		&item.Name,
@@ -79,9 +79,9 @@ func (r *catalogRepo) GetItemByID(ctx context.Context, id string) (entity.Catalo
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return entity.CatalogItem{}, fmt.Errorf("item not found")
+			return domain.CatalogItem{}, fmt.Errorf("item not found")
 		}
-		return entity.CatalogItem{}, fmt.Errorf("failed to query item by id: %w", err)
+		return domain.CatalogItem{}, fmt.Errorf("failed to query item by id: %w", err)
 	}
 	return item, nil
 }
