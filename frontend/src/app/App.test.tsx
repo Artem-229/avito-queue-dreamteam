@@ -8,7 +8,7 @@ describe('App', () => {
     render(<App />);
 
     expect(
-      screen.getByRole('heading', { name: 'Каталог' }),
+      screen.getByRole('heading', { name: 'Дефицитные товары' }),
     ).toBeInTheDocument();
   });
 });

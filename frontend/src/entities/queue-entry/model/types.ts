@@ -29,6 +29,17 @@ export interface EtaResult {
   confidence: 'low' | 'medium' | 'high';
 }
 
+const TERMINAL_STATUSES: readonly QueueStatus[] = [
+  'EXPIRED',
+  'PURCHASED',
+  'SOLD_OUT',
+  'LEFT',
+];
+
 export function isActiveRight(entry: QueueEntry): boolean {
   return entry.status === 'GRANTED';
+}
+
+export function isTerminalStatus(status: QueueStatus): boolean {
+  return TERMINAL_STATUSES.includes(status);
 }

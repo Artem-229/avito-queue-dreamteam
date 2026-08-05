@@ -4,6 +4,7 @@ export {
   type Order,
   type EtaResult,
   isActiveRight,
+  isTerminalStatus,
 } from './model/types';
 export {
   joinQueue,
@@ -14,3 +15,12 @@ export {
   fetchEta,
   subscribeToEntry,
 } from './api';
+export {
+  queueKeys,
+  useEntry,
+  useLiveEntry,
+  useEntryByItem,
+  useJoinQueue,
+  useLeaveQueue,
+  useCheckout,
+} from './queries';
