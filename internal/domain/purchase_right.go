@@ -1,6 +1,10 @@
 package domain
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type PurchaseRightStatus string
 
@@ -12,10 +16,12 @@ const (
 )
 
 type PurchaseRight struct {
-	ID     uuid.UUID
-	UserID uuid.UUID
-	ItemID uuid.UUID
-	Status PurchaseRightStatus
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	ItemID    uuid.UUID
+	Status    PurchaseRightStatus
+	CreatedAt *time.Time
+	ExpiredAt *time.Time
 }
 
 func (p *PurchaseRight) IsGranted() bool {

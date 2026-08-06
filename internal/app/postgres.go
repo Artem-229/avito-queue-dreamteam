@@ -1,7 +1,7 @@
 package app
 
 import (
-	purchaseright "avito-queue/internal/infra/postgres/repository/purchase_right"
+	"avito-queue/internal/infra/postgres/repository"
 	"context"
 	"fmt"
 
@@ -12,7 +12,7 @@ import (
 )
 
 type Repositories struct {
-	PurchaseRightRepo *purchaseright.RightRepo
+	PurchaseRightRepo *repository.PurchaseRightRepo
 	pool              *pgxpool.Pool
 }
 
@@ -29,7 +29,7 @@ func NewRepositories(ctx context.Context, cfg *config.Database) (*Repositories, 
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	purchaseRightRepo := purchaseright.NewRightRepo(pool)
+	purchaseRightRepo := repository.NewPurchaseRightRepo(pool)
 
 	return &Repositories{
 		PurchaseRightRepo: purchaseRightRepo,
