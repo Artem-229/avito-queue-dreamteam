@@ -8,17 +8,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// если есть метод FindByUserAndItem с такими же аргументами и возвращаемыми значениями, ты - репозиторий
 type PurchaseRightRepository interface {
 	FindByUserAndItem(ctx context.Context, userID, itemID int) (id int, status string, expiresAt time.Time, err error)
 }
 
-// поле типизированно, значит можно любой репо закидывать: мок или реальный
 type CheckoutUsecase struct {
 	repo PurchaseRightRepository
 }
 
-//вызываем в мейн, инициализация
 func NewCheckoutUsecase(repo PurchaseRightRepository) *CheckoutUsecase {
 	return &CheckoutUsecase{repo: repo}
 }
