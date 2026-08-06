@@ -7,7 +7,8 @@ VALUES
     ('Кружка Azumanga Daiho', 456.00, 12),
     ('Медиатор для гитары Jazz III', 399.00, 200),
     ('Арт бук Metal Gear Solid', 15000.00, 3),
-    ('Виниловая пластинка Nier: Automata', 999999.23, 1);
+    ('Виниловая пластинка Nier: Automata', 999999.23, 1),
+    ('Плюш Рей', 1693.00, 0);
 -- +goose StatementEnd
 
 -- +goose Down
@@ -19,6 +20,7 @@ WHERE name IN (
     'Кружка Azumanga Daiho', 
     'Медиатор для гитары Jazz III', 
     'Арт бук Metal Gear Solid',
-    'Виниловая пластинка Nier: Automata'
+    'Виниловая пластинка Nier: Automata',
+    'Плюш Рей'
 );
 -- +goose StatementEnd
