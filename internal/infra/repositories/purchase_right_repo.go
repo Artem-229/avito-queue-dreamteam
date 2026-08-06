@@ -1,4 +1,4 @@
-package checkout
+package repositories
 
 import (
 	"context"
@@ -21,6 +21,7 @@ const findPurchaseRightQuery = `
 	FROM purchase_rights
 	WHERE id_user = $1 AND id_item = $2`
 
+//можно потом подменить моком
 func (r *PurchaseRightRepo) FindByUserAndItem(ctx context.Context, userID, itemID int) (id int, status string, expiresAt time.Time, err error) {
 	err = r.pool.QueryRow(ctx, findPurchaseRightQuery, userID, itemID).Scan(&id, &status, &expiresAt)
 	return

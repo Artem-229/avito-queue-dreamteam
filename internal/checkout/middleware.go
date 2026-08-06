@@ -1,19 +1,16 @@
 package checkout
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 )
 
 func (h CheckoutHandler) PurchaseRightMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		//условимся, что userID передает фронт и каталог передает их через Query-параметр, а itemID считается из строки
-		userID := c.Query("userID")
+		//условимся, что itemID передает фронт и каталог передает их через Query-параметр, а userID считается из заголовка
+		userID := c.GetHeader("X-User-ID")
 		intUserID, err := strconv.Atoi(userID)
 		if err != nil {
 			c.AbortWithStatusJSON(400, gin.H{"error": "Некорректные данные пользователя"})
@@ -27,21 +24,17 @@ func (h CheckoutHandler) PurchaseRightMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		idPurchase, status, expiresAt, err := h.Repo.FindByUserAndItem(c.Request.Context(), intUserID, intItemID)
-
+		purchaseID, allowed, reason, err := h.Usecase.CheckAccess(c.Request.Context(), intUserID, intItemID)
 		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Нет права на покупку этого товара"})
-			return
 		case err != nil:
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Внутренняя ошибка сервера"})
 			return
-		case status != "granted" || !expiresAt.After(time.Now()):
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Право на покупку товара неактивно"})
+		case !allowed:
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": reason})
 			return
 		}
 
-		c.Set("purchase_id", idPurchase)
+		c.Set("purchase_id", purchaseID)
 		c.Next()
 	}
 }

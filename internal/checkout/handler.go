@@ -1,11 +1,17 @@
 package checkout
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 )
 
+type CheckAccessor interface {
+	CheckAccess(ctx context.Context, userID, itemID int) (purchaseID int, allowed bool, reason string, err error)
+}
+
 type CheckoutHandler struct {
-	Repo *PurchaseRightRepo
+	Usecase CheckAccessor
 }
 
 func (h CheckoutHandler) Checkout() gin.HandlerFunc {
