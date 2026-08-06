@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -16,11 +17,28 @@ func NewPurchaseRightRepo(pool *pgxpool.Pool) *PurchaseRightRepo {
 }
 
 const findPurchaseRightQuery = `
-	SELECT id_purchase, purchase_status, expires_at
+	SELECT id, status, expires_at
 	FROM purchase_rights
-	WHERE id_user = $1 AND id_item = $2`
+	WHERE user_id = $1 AND item_id = $2`
 
-func (r *PurchaseRightRepo) FindByUserAndItem(ctx context.Context, userID, itemID int) (id int, status string, expiresAt time.Time, err error) {
+func (r *PurchaseRightRepo) FindByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (id uuid.UUID, status string, expiresAt time.Time, err error) {
 	err = r.pool.QueryRow(ctx, findPurchaseRightQuery, userID, itemID).Scan(&id, &status, &expiresAt)
 	return
+}
+
+const closePurchaseQuery = `
+	UPDATE purchase_rights
+	SET status = 'used'
+	WHERE id = $1 AND status = 'granted' AND expires_at > now()`
+
+func (r *PurchaseRightRepo) MarkAsUsed(ctx context.Context, purchaseID uuid.UUID) (success bool, err error) {
+	tag, err := r.pool.Exec(ctx, closePurchaseQuery, purchaseID)
+	if err != nil {
+		return false, err
+	}
+
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+	return true, nil
 }

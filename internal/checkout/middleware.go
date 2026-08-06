@@ -2,29 +2,29 @@ package checkout
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func (h CheckoutHandler) PurchaseRightMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		//условимся, что itemID передает фронт и каталог передает их через Query-параметр, а userID считается из заголовка
+		// userID передаётся заголовком X-User-ID, itemID — частью пути (/checkout/:itemID)
 		userID := c.GetHeader("X-User-ID")
-		intUserID, err := strconv.Atoi(userID)
+		userUUID, err := uuid.Parse(userID)
 		if err != nil {
-			c.AbortWithStatusJSON(400, gin.H{"error": "Некорректные данные пользователя"})
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Некорректные данные пользователя"})
 			return
 		}
 
 		itemID := c.Param("itemID")
-		intItemID, err := strconv.Atoi(itemID)
+		itemUUID, err := uuid.Parse(itemID)
 		if err != nil {
-			c.AbortWithStatusJSON(400, gin.H{"error": "Некорректные данные товара"})
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Некорректные данные товара"})
 			return
 		}
 
-		purchaseID, allowed, reason, err := h.Usecase.CheckAccess(c.Request.Context(), intUserID, intItemID)
+		purchaseID, expiresAt, allowed, reason, err := h.Usecase.CheckAccess(c.Request.Context(), userUUID, itemUUID)
 		switch {
 		case err != nil:
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Внутренняя ошибка сервера"})
@@ -35,6 +35,7 @@ func (h CheckoutHandler) PurchaseRightMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("purchase_id", purchaseID)
+		c.Set("expires_at", expiresAt)
 		c.Next()
 	}
 }
