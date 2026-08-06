@@ -22,6 +22,7 @@ func (h *CatalogHandler) GetList(c *gin.Context) {
 	items, err := h.catalogService.GetCatalog(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch catalog"})
+		return
 	}
 
 	if items == nil {
