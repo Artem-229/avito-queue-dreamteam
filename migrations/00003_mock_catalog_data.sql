@@ -6,7 +6,8 @@ VALUES
     ('Футболка I EAT CEMENT', 3500.00, 50),
     ('Кружка Azumanga Daiho', 456.00, 12),
     ('Медиатор для гитары Jazz III', 399.00, 200),
-    ('Арт бук Metal Gear Solid', 15000.00, 3);
+    ('Арт бук Metal Gear Solid', 15000.00, 3),
+    ('Виниловая пластинка Nier: Automata', 999999.23, 1);
 -- +goose StatementEnd
 
 -- +goose Down
@@ -17,6 +18,7 @@ WHERE name IN (
     'Футболка I EAT CEMENT', 
     'Кружка Azumanga Daiho', 
     'Медиатор для гитары Jazz III', 
-    'Арт бук Metal Gear Solid'
+    'Арт бук Metal Gear Solid',
+    'Виниловая пластинка Nier: Automata'
 );
 -- +goose StatementEnd
