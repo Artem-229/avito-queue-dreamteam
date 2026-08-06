@@ -30,6 +30,18 @@ func (h *CatalogHandler) GetList(c *gin.Context) {
 	c.JSON(http.StatusOK, items)
 }
 
+func (h *CatalogHandler) GetByID(c *gin.Context) {
+	id := c.Param("id")
+
+	item, err := h.catalogService.GetCatalogItem(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "item not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
+}
+
 func (h *CatalogHandler) BuyItem(c *gin.Context) {
 	itemID := c.Param("id")
 	c.JSON(http.StatusOK, gin.H{
