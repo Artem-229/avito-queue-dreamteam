@@ -46,7 +46,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['vite.config.ts'],
+    files: ['vite.config.ts', 'vitest.config.ts', 'gigachat.plugin.ts'],
     languageOptions: {
       globals: globals.node,
     },

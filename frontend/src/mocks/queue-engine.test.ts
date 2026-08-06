@@ -83,6 +83,14 @@ describe('QueueEngine', () => {
     expect(second.entryId).toBe(first.entryId);
   });
 
+  it('прогноз ETA считается от позиции и среднего времени обслуживания', () => {
+    const joined = engine.join('user-1', SNEAKERS);
+    const eta = engine.getEta(joined.entryId);
+
+    expect(eta.seconds).toBe(12);
+    expect(eta.confidence).toBe('medium');
+  });
+
   it('рекомендует товары той же категории первыми', () => {
     const similar = engine.getSimilarItems(SNEAKERS);
 

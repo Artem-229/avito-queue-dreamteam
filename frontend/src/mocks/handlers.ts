@@ -1,7 +1,5 @@
 import { http, HttpResponse } from 'msw';
 
-import { type EtaResult } from '@/entities/queue-entry';
-
 import { ApiFault, queueEngine } from './queue-engine';
 
 const TERMINAL = ['PURCHASED', 'EXPIRED', 'SOLD_OUT', 'LEFT'];
@@ -21,12 +19,6 @@ function faultResponse(error: unknown) {
     { code: 'INTERNAL', message: 'Внутренняя ошибка мока' },
     { status: 500 },
   );
-}
-
-function confidenceFor(ahead: number): EtaResult['confidence'] {
-  if (ahead <= 1) return 'high';
-  if (ahead <= 4) return 'medium';
-  return 'low';
 }
 
 export const handlers = [
@@ -116,12 +108,7 @@ export const handlers = [
 
   http.get('/api/queue/:entryId/eta', ({ params }) => {
     try {
-      const entry = queueEngine.getEntry(String(params.entryId));
-      const result: EtaResult = {
-        seconds: entry.etaSeconds ?? 0,
-        confidence: confidenceFor(entry.totalAhead),
-      };
-      return HttpResponse.json(result);
+      return HttpResponse.json(queueEngine.getEta(String(params.entryId)));
     } catch (error) {
       return faultResponse(error);
     }

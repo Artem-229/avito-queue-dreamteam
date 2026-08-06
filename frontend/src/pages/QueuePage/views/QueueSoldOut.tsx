@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 
-import { ItemCard, useSimilarItems } from '@/entities/item';
+import { ItemCard, useItem, useSimilarItems } from '@/entities/item';
 import { type QueueEntry } from '@/entities/queue-entry';
+import { useRecommendation } from '@/features/ai-recommendation';
 import { Button, Skeleton } from '@/shared/ui';
 
 import { QueueScreen } from '../QueueScreen';
@@ -13,7 +14,16 @@ interface QueueSoldOutProps {
 
 export function QueueSoldOut({ entry }: QueueSoldOutProps) {
   const navigate = useNavigate();
+  const { data: item } = useItem(entry.itemId);
   const { data: similar, isLoading } = useSimilarItems(entry.itemId);
+
+  const recommendation = useRecommendation(
+    item?.title,
+    (similar ?? []).map((candidate) => ({
+      title: candidate.title,
+      price: candidate.price,
+    })),
+  );
 
   return (
     <QueueScreen
@@ -34,13 +44,20 @@ export function QueueSoldOut({ entry }: QueueSoldOutProps) {
         </Button>
       }
     >
+      {recommendation.data?.text && (
+        <div className={styles.aiBlurb}>
+          <span className={styles.aiBadge}>ИИ · GigaChat</span>
+          <p className={styles.aiText}>{recommendation.data.text}</p>
+        </div>
+      )}
+
       <div className={styles.similarGrid}>
         {isLoading &&
           Array.from({ length: 3 }).map((_, index) => (
             <Skeleton key={index} height={240} radius="var(--radius-lg)" />
           ))}
-        {similar?.map((item) => (
-          <ItemCard key={item.id} item={item} />
+        {similar?.map((candidate) => (
+          <ItemCard key={candidate.id} item={candidate} />
         ))}
       </div>
     </QueueScreen>

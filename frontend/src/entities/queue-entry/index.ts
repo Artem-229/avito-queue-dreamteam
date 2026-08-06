@@ -20,6 +20,7 @@ export {
   useEntry,
   useLiveEntry,
   useEntryByItem,
+  useEta,
   useJoinQueue,
   useLeaveQueue,
   useCheckout,

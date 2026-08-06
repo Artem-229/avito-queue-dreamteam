@@ -10,6 +10,7 @@ import {
   checkout,
   fetchEntry,
   fetchEntryByItem,
+  fetchEta,
   joinQueue,
   leaveQueue,
 } from './api';
@@ -76,6 +77,15 @@ export function useEntryByItem(itemId: string) {
   return useQuery({
     queryKey: queueKeys.byItem(itemId),
     queryFn: () => fetchEntryByItem(itemId),
+  });
+}
+
+export function useEta(entryId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['queue-eta', entryId],
+    queryFn: () => fetchEta(entryId),
+    enabled,
+    refetchInterval: enabled ? 4000 : false,
   });
 }
 

@@ -1,5 +1,9 @@
 import { type Item } from '@/entities/item';
-import { type Order, type QueueEntry } from '@/entities/queue-entry';
+import {
+  type EtaResult,
+  type Order,
+  type QueueEntry,
+} from '@/entities/queue-entry';
 
 import { ITEM_SEEDS, type ItemSeed, toItem } from './data';
 
@@ -147,6 +151,26 @@ export class QueueEngine {
     const found = this.findEntry(entryId);
     this.tick(found.state);
     return this.toView(found.state, found.entry);
+  }
+
+  getEta(entryId: string): EtaResult {
+    const found = this.findEntry(entryId);
+    this.tick(found.state);
+
+    const live = found.state.entries.filter(isLive);
+    const index = live.indexOf(found.entry);
+    const ahead = index >= 0 ? index : 0;
+
+    const perPerson =
+      found.state.seed.botServiceMs > 0
+        ? found.state.seed.botServiceMs / 1000
+        : ETA_SERVICE_SECONDS;
+
+    const seconds = Math.round(ahead * perPerson);
+    const confidence: EtaResult['confidence'] =
+      ahead <= 1 ? 'high' : ahead <= 4 ? 'medium' : 'low';
+
+    return { seconds, confidence };
   }
 
   getEntryByItem(userId: string, itemId: string): QueueEntry | null {
