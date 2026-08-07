@@ -1,11 +1,13 @@
 package handlers
 
 type Handlers struct {
-	Catalog *CatalogHandler
+	Catalog  *CatalogHandler
+	Checkout *CheckoutHandler
 }
 
-func New(catalog *CatalogHandler) *Handlers {
+func New(catalog *CatalogHandler, checkout *CheckoutHandler) *Handlers {
 	return &Handlers{
-		Catalog: catalog,
+		Catalog:  catalog,
+		Checkout: checkout,
 	}
 }

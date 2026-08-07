@@ -5,6 +5,7 @@ import (
 	"avito-queue/internal/infra/http/rest/handlers"
 	"avito-queue/internal/repository"
 	"avito-queue/internal/service"
+	"avito-queue/internal/usecases"
 	"context"
 	"fmt"
 	"net/http"
@@ -21,7 +22,11 @@ func NewServer(conf *config.Config, db *pgxpool.Pool) *Server {
 	catalogService := service.NewCatalogService(catalogRepo)
 	CatalogHandler := handlers.NewCatalogHandler(catalogService)
 
-	handlers := handlers.New(CatalogHandler)
+	purchaseRightRepo := repository.NewPurchaseRightRepo(db)
+	checkoutUsecase := usecases.NewCheckoutUsecase(purchaseRightRepo)
+	checkoutHandler := &handlers.CheckoutHandler{Usecase: checkoutUsecase}
+
+	handlers := handlers.New(CatalogHandler, checkoutHandler)
 
 	router := NewRouter(handlers)
 	addr := fmt.Sprintf("%s:%d", conf.HTTPServer.Host, conf.HTTPServer.Port)
