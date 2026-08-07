@@ -102,7 +102,7 @@ export class QueueEngine {
   }
 
   join(userId: string, itemId: string): QueueEntry {
-    const state = this.requireItem(itemId);
+    const state = this.ensureItem(itemId);
 
     if (!state.seed.queueEnabled) {
       throw new ApiFault(
@@ -304,6 +304,34 @@ export class QueueEngine {
     if (!state) {
       throw new ApiFault('NOT_FOUND', 'Товар не найден', 404);
     }
+    return state;
+  }
+
+  private ensureItem(id: string): ItemState {
+    const existing = this.items.get(id);
+    if (existing) return existing;
+
+    const seed: ItemSeed = {
+      id,
+      title: 'Товар',
+      price: 0,
+      category: '',
+      sellerName: '',
+      stock: 5,
+      queueEnabled: true,
+      emoji: '📦',
+      accent: '#00AAFF',
+      botsAhead: 2,
+      botServiceMs: 4000,
+    };
+    const state: ItemState = {
+      seed,
+      stock: seed.stock,
+      entries: [],
+      seeded: false,
+      nextFreeAt: 0,
+    };
+    this.items.set(id, state);
     return state;
   }
 

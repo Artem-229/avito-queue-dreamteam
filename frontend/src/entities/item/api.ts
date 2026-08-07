@@ -1,15 +1,32 @@
 import { apiRequest } from '@/shared/api';
+import { isLiveApi } from '@/shared/config';
 
+import { catalogItemToItem, type CatalogItemDto } from './dto';
 import { type Item } from './model/types';
 
-export function fetchItems(): Promise<Item[]> {
+export async function fetchItems(): Promise<Item[]> {
+  if (isLiveApi) {
+    const dtos = await apiRequest<CatalogItemDto[]>('/api/v1/catalog');
+    return dtos.map(catalogItemToItem);
+  }
   return apiRequest<Item[]>('/api/items');
 }
 
-export function fetchItem(id: string): Promise<Item> {
+export async function fetchItem(id: string): Promise<Item> {
+  if (isLiveApi) {
+    const dto = await apiRequest<CatalogItemDto>(`/api/v1/catalog/${id}`);
+    return catalogItemToItem(dto);
+  }
   return apiRequest<Item>(`/api/items/${id}`);
 }
 
-export function fetchSimilarItems(id: string): Promise<Item[]> {
+export async function fetchSimilarItems(id: string): Promise<Item[]> {
+  if (isLiveApi) {
+    const dtos = await apiRequest<CatalogItemDto[]>('/api/v1/catalog');
+    return dtos
+      .filter((dto) => dto.id !== id)
+      .slice(0, 4)
+      .map(catalogItemToItem);
+  }
   return apiRequest<Item[]>(`/api/items/${id}/similar`);
 }

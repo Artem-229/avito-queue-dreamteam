@@ -16,6 +16,7 @@ export async function apiRequest<T>(
     headers: {
       'Content-Type': 'application/json',
       'X-User-Id': getUserId(),
+      'X-Test-User-Id': getUserId(),
       ...options.headers,
     },
   });
