@@ -15,11 +15,15 @@ type TransactionKey string
 
 const key TransactionKey = "transaction_key"
 
-type QueueRepo struct {
+type QueueRepository struct {
 	pool *pgxpool.Pool
 }
 
-func (q *QueueRepo) InTx(ctx context.Context, fn func(ctx context.Context) error) error {
+func NewQueueRepo(pool *pgxpool.Pool) *QueueRepository {
+	return &QueueRepository{pool: pool}
+}
+
+func (q *QueueRepository) InTx(ctx context.Context, fn func(ctx context.Context) error) error {
 	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("create transaction: %w", err)
@@ -44,11 +48,11 @@ func ExtractTx(ctx context.Context) (pgx.Tx, bool) {
 	return nil, false
 }
 
-func (q *QueueRepo) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
+func (q *QueueRepository) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
 	query := `
 		INSERT INTO queue (user_id, item_id, status, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON UPDATE DO NOTHING;`
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, item_id) WHERE status IN ('waiting', 'granted') DO NOTHING;`
 
 	res, err := q.pool.Exec(ctx, query, userID, itemID, domain.QueueStatusWaiting, time.Now())
 	if err != nil {
@@ -61,20 +65,20 @@ func (q *QueueRepo) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
 	return nil
 }
 
-func (q *QueueRepo) MarkRecordsExpired(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID) error {
+func (q *QueueRepository) MarkRecordsExpired(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID) error {
 	query := `
-		UPDATE queue_entries 
+		UPDATE queue 
 		SET status = $1 
 		WHERE item_id = $2 
 		  AND user_id = ANY($3)
-		  AND status = 'waiting'`
+		  AND status = $4`
 
 	tx, ok := ExtractTx(ctx)
 	if !ok {
 		return fmt.Errorf("could not extract tx")
 	}
 
-	_, err := tx.Exec(ctx, query, domain.QueueStatusExpired, itemID, userIDs)
+	_, err := tx.Exec(ctx, query, domain.QueueStatusExpired, itemID, userIDs, domain.QueueStatusWaiting)
 	if err != nil {
 		return fmt.Errorf("marking queue records expired: %w", err)
 	}
@@ -82,30 +86,9 @@ func (q *QueueRepo) MarkRecordsExpired(ctx context.Context, itemID uuid.UUID, us
 	return nil
 }
 
-func (q *QueueRepo) SetStatuses(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID, status string) error {
+func (q *QueueRepository) GetWaiting(ctx context.Context, itemID uuid.UUID, freeSlots int) ([]uuid.UUID, error) {
 	query := `
-		UPDATE queue_entries 
-		SET status = $1 
-		WHERE item_id = $2 
-		  AND user_id = ANY($3)
-		  AND status = 'waiting'`
-
-	tx, ok := ExtractTx(ctx)
-	if !ok {
-		return fmt.Errorf("could not extract tx")
-	}
-
-	_, err := tx.Exec(ctx, query, status, itemID, userIDs)
-	if err != nil {
-		return fmt.Errorf("marking queue records expired: %w", err)
-	}
-
-	return nil
-}
-
-func (q *QueueRepo) GetWaiting(ctx context.Context, itemID uuid.UUID, freeSlots int) ([]uuid.UUID, error) {
-	query := `
-			SELECT user_id FROM queue_entries
+			SELECT user_id FROM queue
 			WHERE item_id = $1 AND status = $2
 			ORDER BY created_at ASC
 			LIMIT $3`
@@ -125,11 +108,14 @@ func (q *QueueRepo) GetWaiting(ctx context.Context, itemID uuid.UUID, freeSlots 
 		}
 		userIDs = append(userIDs, userID)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating thought users ids from queue: %w", err)
+	}
 
 	return userIDs, nil
 }
 
-func (r *QueueRepo) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.QueueStatus) error {
+func (r *QueueRepository) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.QueueStatus) error {
 	query := `UPDATE queue SET status = $1 WHERE user_id = $2 AND item_id = $3`
 	_, err := r.pool.Exec(ctx, query, status, userID, itemID)
 	if err != nil {

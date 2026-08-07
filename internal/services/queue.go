@@ -1,4 +1,4 @@
-package usecases
+package services
 
 import (
 	"avito-queue/internal/domain"
@@ -10,7 +10,7 @@ import (
 )
 
 type CatalogRepo interface {
-	GetStock(ctx context.Context, itemID uuid.UUID) (int, error)
+	GetItemByID(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
 }
 
 type QueueRepo interface {
@@ -34,16 +34,21 @@ type Queue struct {
 	CatalogRepo       CatalogRepo
 }
 
-func NewQueue(queueRepo QueueRepo, purchaseRightRepo PurchaseRightRepo) *Queue {
+func NewQueueService(queueRepo QueueRepo, purchaseRightRepo PurchaseRightRepo, catalogRepo CatalogRepo) *Queue {
 	return &Queue{
 		QueueRepo:         queueRepo,
 		PurchaseRightRepo: purchaseRightRepo,
+		CatalogRepo:       catalogRepo,
 	}
 }
 
 func (q *Queue) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
 	if err := q.QueueRepo.Entry(ctx, userID, itemID); err != nil {
 		return fmt.Errorf("adding user to queue: %w", err)
+	}
+
+	if err := q.Reconcile(ctx, itemID); err != nil {
+		return fmt.Errorf("reconcilling queue: %w", err)
 	}
 
 	return nil
@@ -66,7 +71,7 @@ func (q *Queue) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 	return q.QueueRepo.InTx(ctx, func(ctx context.Context) error {
 		t := time.Now()
 
-		stock, err := q.CatalogRepo.GetStock(ctx, itemID)
+		item, err := q.CatalogRepo.GetItemByID(ctx, itemID)
 		if err != nil {
 			return fmt.Errorf("getting stock: %w", err)
 		}
@@ -85,7 +90,10 @@ func (q *Queue) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 			return fmt.Errorf("counting active purchase rights: %w", err)
 		}
 
-		possibleRights := stock - activeRights
+		possibleRights := item.TotalStock - activeRights
+		if possibleRights < 0 {
+			return fmt.Errorf("the amount the active rights is larger than item total stock")
+		}
 
 		userIDs, err := q.QueueRepo.GetWaiting(ctx, itemID, possibleRights)
 		if err != nil {

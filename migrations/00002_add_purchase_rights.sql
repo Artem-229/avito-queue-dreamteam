@@ -12,6 +12,10 @@ CREATE TABLE purchase_rights (
 CREATE INDEX idx_purchase_rights_user_item_status
     ON purchase_rights (user_id, item_id, status);
 
+CREATE UNIQUE INDEX idx_purchase_rights_user_item_active
+    ON purchase_rights (user_id, item_id)
+    WHERE status = 'granted';
+
 -- +goose StatementEnd
 
 -- +goose Down

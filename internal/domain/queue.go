@@ -21,7 +21,7 @@ type Queue struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
 	ItemID    uuid.UUID
-	Status    string
-	CreatedAt *time.Time
-	DeletedAt *time.Time
+	Status    QueueStatus
+	CreatedAt time.Time
+	DeletedAt time.Time
 }

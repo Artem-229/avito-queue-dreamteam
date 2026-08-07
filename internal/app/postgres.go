@@ -12,7 +12,9 @@ import (
 )
 
 type Repositories struct {
-	PurchaseRightRepo *repository.PurchaseRightRepo
+	PurchaseRightRepo *repository.PurchaseRightRepository
+	QueueRepo         *repository.QueueRepository
+	CatalogRepository *repository.CatalogRepository
 	pool              *pgxpool.Pool
 }
 
@@ -30,9 +32,13 @@ func NewRepositories(ctx context.Context, cfg *config.Database) (*Repositories, 
 	}
 
 	purchaseRightRepo := repository.NewPurchaseRightRepo(pool)
+	queueRepo := repository.NewQueueRepo(pool)
+	catalogRepository := repository.NewCatalogRepository(pool)
 
 	return &Repositories{
 		PurchaseRightRepo: purchaseRightRepo,
+		QueueRepo:         queueRepo,
+		CatalogRepository: catalogRepository,
 		pool:              pool,
 	}, nil
 }
