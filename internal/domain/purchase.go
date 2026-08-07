@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type PurchaseStatus string
 
@@ -12,10 +16,10 @@ const (
 )
 
 type PurchaseRight struct {
-	ID        string         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	UserID    string         `json:"user_id"`
+	ID        uuid.UUID      `json:"id"`
+	ItemID    uuid.UUID      `json:"item_id"`
+	UserID    uuid.UUID      `json:"user_id"`
 	Status    PurchaseStatus `json:"status"`
-	ExpiredAt time.Time      `json:"expires_at"`
+	ExpiresAt time.Time      `json:"expires_at"`
 	CreatedAt time.Time      `json:"created_at"`
 }

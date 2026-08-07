@@ -8,17 +8,17 @@ import (
 	"avito-queue/internal/repository"
 )
 
-type СatalogService struct {
+type CatalogService struct {
 	repo repository.CatalogRepository
 }
 
-func NewCatalogService(repo repository.CatalogRepository) *СatalogService {
-	return &СatalogService{
+func NewCatalogService(repo repository.CatalogRepository) *CatalogService {
+	return &CatalogService{
 		repo: repo,
 	}
 }
 
-func (s *СatalogService) GetCatalog(ctx context.Context) ([]domain.CatalogItem, error) {
+func (s *CatalogService) GetCatalog(ctx context.Context) ([]domain.CatalogItem, error) {
 	items, err := s.repo.GetItems(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("service.GetCatalog: %w", err)
@@ -27,7 +27,7 @@ func (s *СatalogService) GetCatalog(ctx context.Context) ([]domain.CatalogItem,
 	return items, nil
 }
 
-func (s *СatalogService) GetCatalogItem(ctx context.Context, id string) (domain.CatalogItem, error) {
+func (s *CatalogService) GetCatalogItem(ctx context.Context, id string) (domain.CatalogItem, error) {
 	item, err := s.repo.GetItemByID(ctx, id)
 	if err != nil {
 		return domain.CatalogItem{}, fmt.Errorf("service.GetCatalogItem: %w", err)
