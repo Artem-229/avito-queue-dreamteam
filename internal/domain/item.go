@@ -1,9 +1,13 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type CatalogItem struct {
-	ID         string     `json:"id"`
+	ID         uuid.UUID  `json:"id"`
 	Name       string     `json:"name"`
 	Price      float64    `json:"price"`
 	TotalStock int        `json:"total_stock"`
