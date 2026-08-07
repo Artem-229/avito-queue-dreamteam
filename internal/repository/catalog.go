@@ -63,7 +63,7 @@ func (r *catalogRepo) GetItems(ctx context.Context) ([]domain.CatalogItem, error
 
 func (r *catalogRepo) GetItemByID(ctx context.Context, id string) (domain.CatalogItem, error) {
 	query := `
-	SELECT id, name, price, total_stock, created_at, deleted_at
+	SELECT id, name, price, total_stock, created_at
 	FROM catalog_items
 	WHERE id = $1 AND deleted_at IS NULL
 	`
@@ -75,7 +75,6 @@ func (r *catalogRepo) GetItemByID(ctx context.Context, id string) (domain.Catalo
 		&item.Price,
 		&item.TotalStock,
 		&item.CreatedAt,
-		&item.DeletedAt,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {

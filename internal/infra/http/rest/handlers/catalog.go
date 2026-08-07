@@ -2,17 +2,22 @@ package handlers
 
 import (
 	"avito-queue/internal/domain"
-	"avito-queue/internal/service"
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-type CatalogHandler struct {
-	catalogService service.CatalogService
+type CatalogService interface {
+	GetCatalog(ctx context.Context) ([]domain.CatalogItem, error)
+	GetCatalogItem(ctx context.Context, id string) (domain.CatalogItem, error)
 }
 
-func NewCatalogHandler(s service.CatalogService) *CatalogHandler {
+type CatalogHandler struct {
+	catalogService CatalogService
+}
+
+func NewCatalogHandler(s CatalogService) *CatalogHandler {
 	return &CatalogHandler{
 		catalogService: s,
 	}
