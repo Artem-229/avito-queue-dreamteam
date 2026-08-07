@@ -1,0 +1,67 @@
+.timer {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 140px;
+  height: 140px;
+}
+
+.svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.trackRing {
+  fill: none;
+  stroke: var(--color-surface-hover);
+  stroke-width: 8;
+}
+
+.progressRing {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 250ms linear,
+    stroke var(--transition-base);
+}
+
+.value {
+  position: absolute;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.green .progressRing {
+  stroke: var(--color-green);
+}
+
+.green .value {
+  color: var(--color-green);
+}
+
+.amber .progressRing {
+  stroke: var(--color-amber);
+}
+
+.amber .value {
+  color: var(--color-amber);
+}
+
+.red .progressRing {
+  stroke: var(--color-red);
+}
+
+.red .value {
+  color: var(--color-red);
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.45;
+  }
+}

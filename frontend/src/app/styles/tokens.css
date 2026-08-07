@@ -1,0 +1,78 @@
+:root {
+  /* Поверхности — тёмная тема */
+  --color-bg: #0b0b0f;
+  --color-surface: #16161c;
+  --color-surface-hover: #1e1e26;
+  --color-border: #2a2a34;
+
+  /* Бренд */
+  --color-blue: #00aaff;
+  --color-blue-hover: #33bbff;
+  --color-purple: #965eeb;
+  --color-purple-soft: #a169f7;
+  --color-green: #04e061;
+  --color-green-soft: #97cf26;
+  --color-red: #ff6163;
+  --color-amber: #ffb020;
+
+  /* Текст */
+  --color-text: #ffffff;
+  --color-text-muted: #9e9eae;
+  --color-text-inverse: #0b0b0f;
+
+  /* Градиенты — фирменные акценты экранов очереди */
+  --gradient-queue: linear-gradient(135deg, #965eeb 0%, #00aaff 100%);
+  --gradient-granted: linear-gradient(135deg, #04e061 0%, #00aaff 100%);
+
+  /* Радиусы */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* Отступы (кратно 4) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Типографика */
+  --font-family:
+    'Manrope', system-ui, -apple-system, 'Segoe UI', roboto, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 28px;
+  --font-size-2xl: 40px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+
+  /* Тени */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 45%);
+  --shadow-glow-purple: 0 0 32px rgb(150 94 235 / 35%);
+  --shadow-glow-green: 0 0 32px rgb(4 224 97 / 30%);
+
+  /* Слои */
+  --z-header: 100;
+  --z-modal: 1000;
+  --z-toast: 1100;
+
+  /* Переходы */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+
+  /* Раскладка */
+  --layout-max-width: 1200px;
+  --header-height: 64px;
+}
