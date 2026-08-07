@@ -1,19 +1,25 @@
-package checkout
+package middlewares
 
 import (
+	"avito-queue/internal/infra/http/rest/handlers"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-func (h CheckoutHandler) PurchaseRightMiddleware() gin.HandlerFunc {
+func PurchaseRightMiddleware(usecase handlers.CheckAccessor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// userID передаётся заголовком X-User-ID, itemID — частью пути (/checkout/:itemID)
-		userID := c.GetHeader("X-User-ID")
-		userUUID, err := uuid.Parse(userID)
+		rawUserID := c.GetString("userID")
+		userUUID, err := uuid.Parse(rawUserID)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Некорректные данные пользователя"})
+			return
+		}
+
+		if userUUID == uuid.Nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Пользователь не определен"})
 			return
 		}
 
@@ -24,7 +30,7 @@ func (h CheckoutHandler) PurchaseRightMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		purchaseID, expiresAt, allowed, reason, err := h.Usecase.CheckAccess(c.Request.Context(), userUUID, itemUUID)
+		purchaseID, expiresAt, allowed, reason, err := usecase.CheckAccess(c.Request.Context(), userUUID, itemUUID)
 		switch {
 		case err != nil:
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Внутренняя ошибка сервера"})

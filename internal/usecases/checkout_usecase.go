@@ -1,6 +1,7 @@
 package usecases
 
 import (
+	"avito-queue/internal/domain"
 	"context"
 	"errors"
 	"time"
@@ -10,7 +11,7 @@ import (
 )
 
 type PurchaseRightRepository interface {
-	FindByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (id uuid.UUID, status string, expiresAt time.Time, err error)
+	FindByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (id uuid.UUID, status domain.PurchaseStatus, expiresAt time.Time, err error)
 	MarkAsUsed(ctx context.Context, purchaseID uuid.UUID) (success bool, err error)
 }
 
@@ -30,7 +31,7 @@ func (u *CheckoutUsecase) CheckAccess(ctx context.Context, userID, itemID uuid.U
 		return uuid.Nil, time.Time{}, false, "Нет права на покупку этого товара", nil
 	case err != nil:
 		return uuid.Nil, time.Time{}, false, "", err
-	case status != "granted" || !expiresAt.After(time.Now()):
+	case status != domain.StatusGranted || !expiresAt.After(time.Now()):
 		return uuid.Nil, time.Time{}, false, "Право на покупку товара неактивно", nil
 	}
 

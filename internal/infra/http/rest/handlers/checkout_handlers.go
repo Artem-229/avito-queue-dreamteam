@@ -1,4 +1,4 @@
-package checkout
+package handlers
 
 import (
 	"context"
@@ -18,7 +18,7 @@ type CheckoutHandler struct {
 	Usecase CheckAccessor
 }
 
-func (h CheckoutHandler) Checkout() gin.HandlerFunc {
+func (h CheckoutHandler) GetStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		purchaseID := c.MustGet("purchase_id").(uuid.UUID)
 		expiresAt := c.MustGet("expires_at").(time.Time)
