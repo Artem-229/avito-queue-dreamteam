@@ -5,6 +5,7 @@ import (
 	"avito-queue/internal/infra/http/rest/handlers"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -12,10 +13,19 @@ type Server struct {
 	server *http.Server
 }
 
-func NewServer(conf *config.Config) *Server {
-	handlers := handlers.New()
+func NewServer(
+	conf *config.Config,
+	catalogService handlers.CatalogService,
+	queueService handlers.QueueService,
+	purchaseRightService handlers.PurchaseRightService,
+	logger *slog.Logger,
+) *Server {
+	catalogHandler := handlers.NewCatalogHandler(catalogService, purchaseRightService)
+	queueHandler := handlers.NewQueueHandler(queueService)
 
-	router := NewRouter(handlers)
+	h := handlers.New(catalogHandler, queueHandler)
+
+	router := NewRouter(h, logger)
 	addr := fmt.Sprintf("%s:%d", conf.HTTPServer.Host, conf.HTTPServer.Port)
 	return &Server{
 		server: &http.Server{

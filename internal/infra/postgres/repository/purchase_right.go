@@ -3,28 +3,30 @@ package repository
 import (
 	"avito-queue/internal/domain"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type PurchaseRightRepo struct {
+type PurchaseRightRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewPurchaseRightRepo(pool *pgxpool.Pool) *PurchaseRightRepo {
-	return &PurchaseRightRepo{
+func NewPurchaseRightRepo(pool *pgxpool.Pool) *PurchaseRightRepository {
+	return &PurchaseRightRepository{
 		pool: pool,
 	}
 }
 
-func (r *PurchaseRightRepo) Create(ctx context.Context, userID, itemID uuid.UUID) error {
+func (r *PurchaseRightRepository) Create(ctx context.Context, userID, itemID uuid.UUID) error {
 	query := `
 		INSERT INTO purchase_rights (user_id, item_id, status, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT DO NOTHING`
+		ON CONFLICT (user_id, item_id) WHERE status = 'granted' DO NOTHING`
 
 	t := time.Now()
 	res, err := r.pool.Exec(ctx, query, userID, itemID, domain.PurchaseRightStatusGranted, t.Add(5*time.Minute), t)
@@ -32,34 +34,42 @@ func (r *PurchaseRightRepo) Create(ctx context.Context, userID, itemID uuid.UUID
 		return fmt.Errorf("creating purchase_right %w", err)
 	}
 	if res.RowsAffected() == 0 {
-		return fmt.Errorf("could not insert purchase_right %w", err)
+		return fmt.Errorf("could not insert purchase_right")
 	}
 
 	return nil
 }
 
-func (r *PurchaseRightRepo) GetByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (domain.PurchaseRight, error) {
-	query := `SELECT id, status, user_id, item_id FROM purchase_rights WHERE user_id = $1 AND item_id = $2`
+func (r *PurchaseRightRepository) GetByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (domain.PurchaseRight, error) {
+	query := `
+		SELECT id, status, user_id, item_id
+		FROM purchase_rights
+		WHERE user_id = $1 AND item_id = $2
+		ORDER BY created_at DESC
+		LIMIT 1`
 
 	var right domain.PurchaseRight
 	err := r.pool.QueryRow(ctx, query, userID, itemID).Scan(&right.ID, &right.Status, &right.UserID, &right.ItemID)
 	if err != nil {
-		return right, fmt.Errorf("getting purchase_right %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.PurchaseRight{}, domain.ErrNoPurchaseRight
+		}
+		return domain.PurchaseRight{}, fmt.Errorf("getting purchase_right: %w", err)
 	}
 
 	return right, nil
 }
 
-func (r *PurchaseRightRepo) ExpireOld(ctx context.Context, itemID uuid.UUID, t time.Time) ([]uuid.UUID, error) {
+func (r *PurchaseRightRepository) ExpireOld(ctx context.Context, itemID uuid.UUID, t time.Time) ([]uuid.UUID, error) {
 	query := `
 			UPDATE purchase_rights 
 			SET status = $1 WHERE item_id = $2
-			ANS status = $3
+			AND status = $3
 			AND expires_at < $4
 			RETURNING user_id`
 
 	var IDs []uuid.UUID
-	rows, err := r.pool.Query(ctx, query, domain.PurchaseRightStatusExpired, domain.PurchaseRightStatusGranted, itemID, t)
+	rows, err := r.pool.Query(ctx, query, domain.PurchaseRightStatusExpired, itemID, domain.PurchaseRightStatusGranted, t)
 	if err != nil {
 		return IDs, fmt.Errorf("getting purchase_right %w", err)
 	}
@@ -72,11 +82,14 @@ func (r *PurchaseRightRepo) ExpireOld(ctx context.Context, itemID uuid.UUID, t t
 		}
 		IDs = append(IDs, ID)
 	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("iterating thought rows %w", rows.Err())
+	}
 
 	return IDs, nil
 }
 
-func (r *PurchaseRightRepo) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.PurchaseRightStatus) error {
+func (r *PurchaseRightRepository) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.PurchaseRightStatus) error {
 	query := `UPDATE purchase_rights SET status = $1 WHERE user_id = $2 AND item_id = $3`
 	_, err := r.pool.Exec(ctx, query, status, userID, itemID)
 	if err != nil {
@@ -85,7 +98,7 @@ func (r *PurchaseRightRepo) UpdateStatus(ctx context.Context, userID, itemID uui
 	return nil
 }
 
-func (r *PurchaseRightRepo) CountActive(ctx context.Context, itemID uuid.UUID) (int, error) {
+func (r *PurchaseRightRepository) CountActive(ctx context.Context, itemID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM purchase_rights WHERE item_id = $1 AND status = $2`
 	var count int
 	err := r.pool.QueryRow(ctx, query, itemID, domain.PurchaseRightStatusGranted).Scan(&count)

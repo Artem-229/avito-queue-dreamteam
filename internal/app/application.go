@@ -34,8 +34,9 @@ func New(ctx context.Context, conf *config.Config) (*App, error) {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}
 
-	server := rest.NewServer(conf, repos.pool)
-	_ = NewUsecases(ctx, repos)
+	svc := NewServices(ctx, repos)
+
+	server := rest.NewServer(conf, svc.Catalog, svc.Queue, svc.PurchaseRight, logger)
 
 	return &App{
 		repositories: repos,

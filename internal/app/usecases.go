@@ -1,18 +1,24 @@
 package app
 
 import (
-	"avito-queue/internal/usecases"
+	"avito-queue/internal/services"
 	"context"
 )
 
-type Usecases struct {
-	purchaseRight *usecases.PurchaseRight
+type Services struct {
+	PurchaseRight *services.PurchaseRight
+	Catalog       *services.CatalogService
+	Queue         *services.Queue
 }
 
-func NewUsecases(_ context.Context, repositories *Repositories) *Usecases {
-	purchaseRightUsecase := usecases.NewPurchaseRight(repositories.PurchaseRightRepo)
+func NewServices(_ context.Context, repositories *Repositories) *Services {
+	purchaseRightService := services.NewPurchaseRight(repositories.PurchaseRightRepo)
+	catalogService := services.NewCatalogService(repositories.CatalogRepository)
+	queueService := services.NewQueueService(repositories.QueueRepo, repositories.PurchaseRightRepo, repositories.CatalogRepository)
 
-	return &Usecases{
-		purchaseRight: purchaseRightUsecase,
+	return &Services{
+		PurchaseRight: purchaseRightService,
+		Catalog:       catalogService,
+		Queue:         queueService,
 	}
 }
