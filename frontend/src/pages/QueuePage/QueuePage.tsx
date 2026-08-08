@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useLiveEntry } from '@/entities/queue-entry';
 import { Skeleton } from '@/shared/ui';
 
+import { useTurnNotification } from './useTurnNotification';
 import { QueueExpired } from './views/QueueExpired';
 import { QueueGranted } from './views/QueueGranted';
 import { QueuePurchased } from './views/QueuePurchased';
@@ -13,6 +14,8 @@ import styles from './QueuePage.module.css';
 export function QueuePage() {
   const entryId = useParams().entryId ?? '';
   const { data: entry, isLoading, isError } = useLiveEntry(entryId);
+
+  useTurnNotification(entry?.status);
 
   if (isError) {
     return <p className={styles.error}>Запись очереди не найдена.</p>;

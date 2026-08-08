@@ -22,11 +22,10 @@ export async function fetchItem(id: string): Promise<Item> {
 
 export async function fetchSimilarItems(id: string): Promise<Item[]> {
   if (isLiveApi) {
-    const dtos = await apiRequest<CatalogItemDto[]>('/api/v1/catalog');
-    return dtos
-      .filter((dto) => dto.id !== id)
-      .slice(0, 4)
-      .map(catalogItemToItem);
+    const dtos = await apiRequest<CatalogItemDto[]>(
+      `/api/v1/catalog/${id}/similar`,
+    );
+    return dtos.slice(0, 4).map(catalogItemToItem);
   }
   return apiRequest<Item[]>(`/api/items/${id}/similar`);
 }

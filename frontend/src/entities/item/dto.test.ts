@@ -7,6 +7,8 @@ const dto: CatalogItemDto = {
   name: 'Кроссовки Limited',
   price: 24990,
   total_stock: 3,
+  category: 'Обувь',
+  seller_name: 'SneakerHub',
   created_at: '2026-08-06T10:00:00Z',
 };
 
@@ -17,6 +19,8 @@ describe('catalogItemToItem', () => {
     expect(item.id).toBe(dto.id);
     expect(item.title).toBe('Кроссовки Limited');
     expect(item.stock).toBe(3);
+    expect(item.sellerName).toBe('SneakerHub');
+    expect(item.category).toBe('Обувь');
     expect(item.queueEnabled).toBe(true);
   });
 

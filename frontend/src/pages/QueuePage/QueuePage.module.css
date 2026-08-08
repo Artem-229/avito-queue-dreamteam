@@ -143,3 +143,9 @@
   color: var(--color-red);
   text-align: center;
 }
+
+@media (max-width: 480px) {
+  .panel {
+    padding: var(--space-5) var(--space-4);
+  }
+}

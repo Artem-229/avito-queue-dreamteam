@@ -4,6 +4,7 @@ import {
   type Order,
   type QueueEntry,
 } from '@/entities/queue-entry';
+import { type QueueMetrics, type QueueMetricsItem } from '@/features/metrics/types';
 
 import { ITEM_SEEDS, type ItemSeed, toItem } from './data';
 
@@ -151,6 +152,67 @@ export class QueueEngine {
     const found = this.findEntry(entryId);
     this.tick(found.state);
     return this.toView(found.state, found.entry);
+  }
+
+  getMetrics(): QueueMetrics {
+    let totalWaiting = 0;
+    let totalGranted = 0;
+    let purchased = 0;
+    let expired = 0;
+    const waits: number[] = [];
+    const items: QueueMetricsItem[] = [];
+
+    for (const state of this.items.values()) {
+      this.tick(state);
+
+      let waiting = 0;
+      let granted = 0;
+      for (const entry of state.entries) {
+        if (entry.status === 'WAITING') waiting += 1;
+        else if (entry.status === 'GRANTED') granted += 1;
+        else if (entry.status === 'PURCHASED') purchased += 1;
+        else if (entry.status === 'EXPIRED') expired += 1;
+      }
+
+      const live = state.entries.filter(isLive);
+      const perPerson =
+        state.seed.botServiceMs > 0
+          ? state.seed.botServiceMs / 1000
+          : ETA_SERVICE_SECONDS;
+      live.forEach((entry, index) => {
+        if (entry.status === 'WAITING') waits.push(index * perPerson);
+      });
+
+      totalWaiting += waiting;
+      totalGranted += granted;
+
+      if (state.entries.length > 0) {
+        items.push({
+          itemId: state.seed.id,
+          title: state.seed.title,
+          waiting,
+          granted,
+          stockLeft: state.stock,
+        });
+      }
+    }
+
+    const decided = purchased + expired;
+    const conversion = decided > 0 ? purchased / decided : null;
+    const avgWaitSeconds =
+      waits.length > 0
+        ? Math.round(waits.reduce((sum, value) => sum + value, 0) / waits.length)
+        : null;
+
+    return {
+      totalWaiting,
+      totalGranted,
+      purchased,
+      expired,
+      conversion,
+      avgWaitSeconds,
+      items,
+    };
   }
 
   getEta(entryId: string): EtaResult {

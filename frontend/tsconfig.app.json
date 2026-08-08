@@ -20,7 +20,6 @@
     "noUncheckedSideEffectImports": true,
     "verbatimModuleSyntax": true,
 
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },

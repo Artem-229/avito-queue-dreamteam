@@ -5,7 +5,9 @@ export interface CatalogItemDto {
   name: string;
   price: number;
   total_stock: number;
-  created_at: string;
+  category?: string;
+  seller_name?: string;
+  created_at?: string;
 }
 
 const ACCENTS = ['#965EEB', '#00AAFF', '#04E061', '#FFB020', '#FF6163'];
@@ -26,8 +28,8 @@ export function catalogItemToItem(dto: CatalogItemDto): Item {
     price: dto.price,
     stock: dto.total_stock,
     queueEnabled: true,
-    sellerName: 'Продавец на Авито',
-    category: '',
+    sellerName: dto.seller_name ?? 'Продавец на Авито',
+    category: dto.category ?? '',
     emoji: pickBy(EMOJIS, dto.id),
     accent: pickBy(ACCENTS, dto.id),
   };

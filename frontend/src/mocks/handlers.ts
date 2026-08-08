@@ -1,6 +1,9 @@
 import { http, HttpResponse } from 'msw';
 
+import { type SimulationParams } from '@/features/simulator/types';
+
 import { ApiFault, queueEngine } from './queue-engine';
+import { runSimulation } from './simulator';
 
 const TERMINAL = ['PURCHASED', 'EXPIRED', 'SOLD_OUT', 'LEFT'];
 
@@ -23,6 +26,8 @@ function faultResponse(error: unknown) {
 
 export const handlers = [
   http.get('/api/items', () => HttpResponse.json(queueEngine.listItems())),
+
+  http.get('/api/metrics', () => HttpResponse.json(queueEngine.getMetrics())),
 
   http.get('/api/items/:id/similar', ({ params }) => {
     try {
@@ -126,6 +131,15 @@ export const handlers = [
     try {
       queueEngine.leave(String(params.entryId));
       return new HttpResponse(null, { status: 204 });
+    } catch (error) {
+      return faultResponse(error);
+    }
+  }),
+
+  http.post('/api/sim/run', async ({ request }) => {
+    try {
+      const body = (await request.json()) as SimulationParams;
+      return HttpResponse.json(runSimulation(body));
     } catch (error) {
       return faultResponse(error);
     }

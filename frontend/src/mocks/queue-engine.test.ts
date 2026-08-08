@@ -91,6 +91,19 @@ describe('QueueEngine', () => {
     expect(eta.confidence).toBe('medium');
   });
 
+  it('метрики отражают покупки и конверсию права', () => {
+    const joined = engine.join('user-1', SNEAKERS);
+    vi.advanceTimersByTime(3 * 4000 + 100);
+    engine.getEntry(joined.entryId);
+    engine.checkout('user-1', joined.entryId);
+
+    const metrics = engine.getMetrics();
+
+    expect(metrics.purchased).toBe(4);
+    expect(metrics.conversion).toBe(1);
+    expect(metrics.totalWaiting).toBe(0);
+  });
+
   it('рекомендует товары той же категории первыми', () => {
     const similar = engine.getSimilarItems(SNEAKERS);
 
