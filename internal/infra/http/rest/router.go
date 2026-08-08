@@ -23,5 +23,10 @@ func NewRouter(h *handlers.Handlers, logger *slog.Logger) *gin.Engine {
 		api.POST("/catalog/:id/queue", h.Queue.Join)
 	}
 
+	checkout := router.Group("/checkout/:itemID")
+	checkout.Use(middlewares.TestAuthMiddleware())
+	checkout.Use(middlewares.ItemIDMiddleware())
+	checkout.GET("", h.Checkout.GetStatus())
+	checkout.POST("/pay", h.Checkout.Pay())
 	return router
 }
