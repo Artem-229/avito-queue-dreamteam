@@ -108,3 +108,19 @@ func (r *PurchaseRightRepository) CountActive(ctx context.Context, itemID uuid.U
 
 	return count, nil
 }
+
+func (r *PurchaseRightRepository) MarkAsUsed(ctx context.Context, purchaseID uuid.UUID) (success bool, err error) {
+	query := `
+			UPDATE purchase_rights SET status = $2
+			WHERE id = $1 AND status = $3 AND expires_at > now()`
+
+	tag, err := r.pool.Exec(ctx, query, purchaseID, domain.PurchaseRightStatusUsed, domain.PurchaseRightStatusGranted)
+	if err != nil {
+		return false, err
+	}
+
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+	return true, nil
+}

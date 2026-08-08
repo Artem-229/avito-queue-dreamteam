@@ -18,12 +18,14 @@ func NewServer(
 	catalogService handlers.CatalogService,
 	queueService handlers.QueueService,
 	purchaseRightService handlers.PurchaseRightService,
+	checkoutService handlers.CheckAccessor,
 	logger *slog.Logger,
 ) *Server {
 	catalogHandler := handlers.NewCatalogHandler(catalogService, purchaseRightService)
 	queueHandler := handlers.NewQueueHandler(queueService)
+	checkoutHandler := handlers.NewCheckoutHandler(checkoutService)
 
-	h := handlers.New(catalogHandler, queueHandler)
+	h := handlers.New(catalogHandler, queueHandler, checkoutHandler)
 
 	router := NewRouter(h, logger)
 	addr := fmt.Sprintf("%s:%d", conf.HTTPServer.Host, conf.HTTPServer.Port)
