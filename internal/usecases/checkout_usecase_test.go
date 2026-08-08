@@ -112,7 +112,7 @@ func TestCheckAccess_NoRows(t *testing.T) {
 	}
 }
 
-// Сбой в работе БД
+// Ошибка БД
 func TestCheckAccess_DBError(t *testing.T) {
 	repo := mockRepo{
 		findErr: errors.New("connection refused"),
