@@ -23,10 +23,10 @@ MVP сервиса пользовательской очереди на дефи
 /internal
   /app                          — сборка зависимостей (App, Repositories, Services), старт/остановка
   /config                       — чтение configs/configuration.yaml через viper
-  /domain                       — доменные типы: CatalogItem, PurchaseRight, Queue, сентинел-ошибки
+  /domain                       — доменные типы: CatalogItem, PurchaseRight, QueueService, сентинел-ошибки
   /infra/http/rest              — HTTP-слой на gin: server.go, router.go, handlers/, middlewares/
-  /infra/postgres/repository    — репозитории для Catalog, Queue, PurchaseRight (pgx)
-  /services                     — сервисный слой: CatalogService, Queue (Reconcile-логика), PurchaseRight
+  /infra/postgres/repository    — репозитории для Catalog, QueueService, PurchaseRight (pgx)
+  /services                     — сервисный слой: CatalogService, QueueService (Reconcile-логика), PurchaseRight
 /migrations                     — goose-миграции (нумерация 00001, 00002, ...)
 /configs                        — configuration.yaml
 /docs                           — REQUIREMENTS.md
@@ -41,10 +41,10 @@ MVP сервиса пользовательской очереди на дефи
 - **CatalogItem** — товар: `id, name, price, total_stock, created_at, deleted_at`.
 - **PurchaseRight** — персональное временное право на покупку одной единицы товара:
   `id, user_id, item_id, status(granted|used|cancelled|expired), created_at, expires_at`.
-- **Queue** (таблица `queue`) — запись в очереди пользователя на товар:
+- **QueueService** (таблица `queue`) — запись в очереди пользователя на товар:
   `id, user_id, item_id, status(waiting|granted|sold_out|cancelled|expired|purchased), created_at, deleted_at`.
 
-### Бизнес-логика очереди (`services.Queue`)
+### Бизнес-логика очереди (`services.QueueService`)
 
 - `Entry(userID, itemID)` — добавляет пользователя в очередь (status = waiting) и сразу вызывает `Reconcile`.
 - `Reconcile(itemID)` — сдвиг очереди, единая точка изменения статусов, выполняется в транзакции:

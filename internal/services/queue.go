@@ -4,6 +4,7 @@ import (
 	"avito-queue/internal/domain"
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,30 +20,36 @@ type QueueRepo interface {
 	MarkRecordsExpired(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID) error
 	GetWaiting(ctx context.Context, itemID uuid.UUID, freeSlots int) ([]uuid.UUID, error)
 	UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.QueueStatus) error
+	GetRecord(ctx context.Context, userID, itemID uuid.UUID) (domain.Queue, error)
+	GetPosition(ctx context.Context, queueRecord domain.Queue) (int, error)
+	MarkSoldOut(ctx context.Context, itemID uuid.UUID) error
 }
 
 type PurchaseRightRepo interface {
 	Create(ctx context.Context, userID, itemID uuid.UUID) error
-	CountActive(ctx context.Context, itemID uuid.UUID) (int, error)
+	CountGranted(ctx context.Context, itemID uuid.UUID) (int, error)
+	CountUsed(ctx context.Context, itemID uuid.UUID) (int, error)
 	UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.PurchaseRightStatus) error
 	ExpireOld(ctx context.Context, itemID uuid.UUID, t time.Time) ([]uuid.UUID, error)
 }
 
-type Queue struct {
+type QueueService struct {
 	QueueRepo         QueueRepo
 	PurchaseRightRepo PurchaseRightRepo
 	CatalogRepo       CatalogRepo
+	logger            *slog.Logger
 }
 
-func NewQueueService(queueRepo QueueRepo, purchaseRightRepo PurchaseRightRepo, catalogRepo CatalogRepo) *Queue {
-	return &Queue{
+func NewQueueService(queueRepo QueueRepo, purchaseRightRepo PurchaseRightRepo, catalogRepo CatalogRepo, logger *slog.Logger) *QueueService {
+	return &QueueService{
 		QueueRepo:         queueRepo,
 		PurchaseRightRepo: purchaseRightRepo,
 		CatalogRepo:       catalogRepo,
+		logger:            logger,
 	}
 }
 
-func (q *Queue) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
+func (q *QueueService) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
 	if err := q.QueueRepo.Entry(ctx, userID, itemID); err != nil {
 		return fmt.Errorf("adding user to queue: %w", err)
 	}
@@ -54,7 +61,7 @@ func (q *Queue) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
 	return nil
 }
 
-func (q *Queue) Reconcile(ctx context.Context, itemID uuid.UUID) error {
+func (q *QueueService) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 	// Метод сдвига очереди, включает в себя все шаги
 	// Когда человек вступает в очередь он получает себе запись, после этого вызывается сдвиг очереди
 	// Сначала происходит пометка просроченных прав чтобы получить список актульных прав на данный момент
@@ -85,13 +92,27 @@ func (q *Queue) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 			return fmt.Errorf("expiring queue records: %w", err)
 		}
 
-		activeRights, err := q.PurchaseRightRepo.CountActive(ctx, itemID)
+		activeRights, err := q.PurchaseRightRepo.CountGranted(ctx, itemID)
 		if err != nil {
 			return fmt.Errorf("counting active purchase rights: %w", err)
 		}
 
-		possibleRights := item.TotalStock - activeRights
+		usedRights, err := q.PurchaseRightRepo.CountUsed(ctx, itemID)
+		if err != nil {
+			return fmt.Errorf("counting used purchase rights: %w", err)
+		}
+
+		if item.TotalStock == usedRights {
+			if err := q.QueueRepo.MarkSoldOut(ctx, item.ID); err != nil {
+				return fmt.Errorf("marking soldOut: %w", err)
+			}
+
+			return domain.ErrItemSoldOut
+		}
+
+		possibleRights := item.TotalStock - activeRights - usedRights
 		if possibleRights < 0 {
+			q.logger.Error("purchase rights is negative", "total stock", item.TotalStock, "activeRights", item.TotalStock)
 			return fmt.Errorf("the amount the active rights is larger than item total stock")
 		}
 
@@ -112,4 +133,18 @@ func (q *Queue) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 
 		return nil
 	})
+}
+
+func (q *QueueService) GetPosition(ctx context.Context, userID, itemID uuid.UUID) (int, error) {
+	queueRecord, err := q.QueueRepo.GetRecord(ctx, userID, itemID)
+	if err != nil {
+		return 0, fmt.Errorf("getting queue record: %w", err)
+	}
+
+	pos, err := q.QueueRepo.GetPosition(ctx, queueRecord)
+	if err != nil {
+		return 0, fmt.Errorf("getting position: %w", err)
+	}
+
+	return pos, nil
 }

@@ -3,6 +3,7 @@ package repository
 import (
 	"avito-queue/internal/domain"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -115,11 +116,63 @@ func (q *QueueRepository) GetWaiting(ctx context.Context, itemID uuid.UUID, free
 	return userIDs, nil
 }
 
-func (r *QueueRepository) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.QueueStatus) error {
+func (q *QueueRepository) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.QueueStatus) error {
 	query := `UPDATE queue SET status = $1 WHERE user_id = $2 AND item_id = $3`
-	_, err := r.pool.Exec(ctx, query, status, userID, itemID)
+	_, err := q.pool.Exec(ctx, query, status, userID, itemID)
 	if err != nil {
 		return fmt.Errorf("update purchase_right status: %w", err)
 	}
 	return nil
+}
+
+func (q *QueueRepository) MarkSoldOut(ctx context.Context, itemID uuid.UUID) error {
+	query := `UPDATE queue SET status = $1 WHERE item_id = $2 and status = $3`
+
+	_, err := q.pool.Exec(ctx, query, domain.QueueStatusSoldOut, itemID, domain.QueueStatusWaiting)
+	if err != nil {
+		return fmt.Errorf("marking sold_out: %w", err)
+	}
+
+	return nil
+}
+
+func (q *QueueRepository) GetRecord(ctx context.Context, userID, itemID uuid.UUID) (domain.Queue, error) {
+	query := `
+		SELECT id, user_id, item_id, status, created_at, deleted_at
+		FROM queue
+		WHERE user_id = $1 AND item_id = $2
+		ORDER BY created_at DESC
+		LIMIT 1`
+
+	var queueRecord domain.Queue
+	err := q.pool.QueryRow(ctx, query, userID, itemID).Scan(
+		&queueRecord.ID,
+		&queueRecord.UserID,
+		&queueRecord.ItemID,
+		&queueRecord.Status,
+		&queueRecord.CreatedAt,
+		&queueRecord.DeletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Queue{}, domain.ErrUserNotFound
+		}
+		return domain.Queue{}, fmt.Errorf("getting queue record: %w", err)
+	}
+
+	return queueRecord, nil
+}
+
+// GetPosition возвращает позицию пользователя в очереди (1 - следующий на выдачу
+// права): считает, сколько записей в статусе waiting встали в очередь раньше него.
+func (q *QueueRepository) GetPosition(ctx context.Context, queueRecord domain.Queue) (int, error) {
+	query := `SELECT COUNT(*) FROM queue WHERE item_id = $1 AND status = $2 AND created_at < $3`
+
+	var ahead int
+	err := q.pool.QueryRow(ctx, query, queueRecord.ItemID, domain.QueueStatusWaiting, queueRecord.CreatedAt).Scan(&ahead)
+	if err != nil {
+		return 0, fmt.Errorf("counting queue position: %w", err)
+	}
+
+	return ahead + 1, nil
 }

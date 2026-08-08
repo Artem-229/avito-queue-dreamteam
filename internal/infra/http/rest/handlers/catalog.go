@@ -89,12 +89,3 @@ func (h *CatalogHandler) BuyItem(c *gin.Context) {
 		"item_id": itemID,
 	})
 }
-
-func mapErrorIntoStatusCodes(err error) int {
-	switch {
-	case errors.Is(err, domain.ErrNoItemFound):
-		return 404
-	default:
-		return 500
-	}
-}

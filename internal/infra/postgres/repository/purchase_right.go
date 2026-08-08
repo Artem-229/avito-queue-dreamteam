@@ -98,7 +98,7 @@ func (r *PurchaseRightRepository) UpdateStatus(ctx context.Context, userID, item
 	return nil
 }
 
-func (r *PurchaseRightRepository) CountActive(ctx context.Context, itemID uuid.UUID) (int, error) {
+func (r *PurchaseRightRepository) CountGranted(ctx context.Context, itemID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM purchase_rights WHERE item_id = $1 AND status = $2`
 	var count int
 	err := r.pool.QueryRow(ctx, query, itemID, domain.PurchaseRightStatusGranted).Scan(&count)
@@ -109,7 +109,17 @@ func (r *PurchaseRightRepository) CountActive(ctx context.Context, itemID uuid.U
 	return count, nil
 }
 
-func (r *PurchaseRightRepository) MarkAsUsed(ctx context.Context, purchaseID uuid.UUID) (success bool, err error) {
+func (r *PurchaseRightRepository) CountUsed(ctx context.Context, itemID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM purchase_rights WHERE item_id = $1 AND status = $2`
+	var count int
+	err := r.pool.QueryRow(ctx, query, itemID, domain.PurchaseRightStatusUsed).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting purchase_right %w", err)
+	}
+
+	return count, nil
+}
+
 func (r *PurchaseRightRepository) MarkAsUsed(ctx context.Context, userID, itemID uuid.UUID) (success bool, err error) {
 	query := `
 		UPDATE purchase_rights SET status = $3
