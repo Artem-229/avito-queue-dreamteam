@@ -31,6 +31,7 @@ type PurchaseRightRepo interface {
 	CountUsed(ctx context.Context, itemID uuid.UUID) (int, error)
 	UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.PurchaseRightStatus) error
 	ExpireOld(ctx context.Context, itemID uuid.UUID, t time.Time) ([]uuid.UUID, error)
+	GetByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (domain.PurchaseRight, error)
 }
 
 type QueueService struct {
@@ -107,7 +108,7 @@ func (q *QueueService) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 				return fmt.Errorf("marking soldOut: %w", err)
 			}
 
-			return domain.ErrItemSoldOut
+			return nil
 		}
 
 		possibleRights := item.TotalStock - activeRights - usedRights
@@ -147,4 +148,28 @@ func (q *QueueService) GetPosition(ctx context.Context, userID, itemID uuid.UUID
 	}
 
 	return pos, nil
+}
+
+func (q *QueueService) GetStatus(ctx context.Context, userID, itemID uuid.UUID) (status domain.QueueStatus, position int, expiresAt *time.Time, err error) {
+	record, err := q.QueueRepo.GetRecord(ctx, userID, itemID)
+	if err != nil {
+		return "", 0, nil, fmt.Errorf("getting queue record: %w", err)
+	}
+
+	switch record.Status {
+	case domain.QueueStatusWaiting:
+		position, err = q.QueueRepo.GetPosition(ctx, record)
+		if err != nil {
+			return "", 0, nil, fmt.Errorf("getting position: %w", err)
+		}
+	case domain.QueueStatusGranted:
+		right, rightErr := q.PurchaseRightRepo.GetByUserAndItem(ctx, userID, itemID)
+		if rightErr != nil {
+			return "", 0, nil, fmt.Errorf("getting purchase right: %w", rightErr)
+		}
+		expiresAtValue := right.ExpiresAt
+		expiresAt = &expiresAtValue
+	}
+
+	return record.Status, position, expiresAt, nil
 }

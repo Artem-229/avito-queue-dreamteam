@@ -14,7 +14,7 @@ type Services struct {
 }
 
 func NewServices(_ context.Context, repositories *Repositories, logger *slog.Logger) *Services {
-	purchaseRightService := services.NewPurchaseRight(repositories.PurchaseRightRepo, repositories.QueueRepo)
+	purchaseRightService := services.NewPurchaseRight(repositories.PurchaseRightRepo, repositories.QueueRepo, repositories.CatalogRepository)
 	catalogService := services.NewCatalogService(repositories.CatalogRepository)
 	queueService := services.NewQueueService(repositories.QueueRepo, repositories.PurchaseRightRepo, repositories.CatalogRepository, logger)
 	checkoutService := services.NewCheckoutService(repositories.PurchaseRightRepo, purchaseRightService)

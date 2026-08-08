@@ -21,12 +21,12 @@ func NewRouter(h *handlers.Handlers, logger *slog.Logger) *gin.Engine {
 		api.GET("/catalog/:id", h.Catalog.GetByID)
 		api.POST("/catalog/:id/buy", h.Catalog.BuyItem)
 		api.POST("/catalog/:id/queue", h.Queue.Join)
-	}
+		api.GET("/catalog/:id/similar", h.Catalog.GetSimilarItems)
 
-	checkout := router.Group("/checkout/:itemID")
-	checkout.Use(middlewares.TestAuthMiddleware())
-	checkout.Use(middlewares.ItemIDMiddleware())
-	checkout.GET("", h.Checkout.GetStatus())
-	checkout.POST("/pay", h.Checkout.Pay())
+		checkout := api.Group("/checkout/:itemID")
+		checkout.Use(middlewares.ItemIDMiddleware())
+		checkout.GET("", h.Checkout.GetStatus())
+		checkout.POST("/pay", h.Checkout.Pay())
+	}
 	return router
 }

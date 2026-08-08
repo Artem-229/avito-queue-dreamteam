@@ -22,7 +22,7 @@ func NewCatalogRepository(db *pgxpool.Pool) *CatalogRepository {
 
 func (r *CatalogRepository) GetItems(ctx context.Context) ([]domain.CatalogItem, error) {
 	query := `
-		SELECT id, name, price, total_stock, created_at, deleted_at
+		SELECT id, name, price, total_stock, category, seller_name, created_at
 		FROM catalog_items
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -42,8 +42,9 @@ func (r *CatalogRepository) GetItems(ctx context.Context) ([]domain.CatalogItem,
 			&item.Name,
 			&item.Price,
 			&item.TotalStock,
+			&item.Category,
+			&item.SellerName,
 			&item.CreatedAt,
-			&item.DeletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan catalog item: %w", err)
@@ -60,7 +61,7 @@ func (r *CatalogRepository) GetItems(ctx context.Context) ([]domain.CatalogItem,
 
 func (r *CatalogRepository) GetItemByID(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error) {
 	query := `
-	SELECT id, name, price, total_stock, created_at
+	SELECT id, name, price, total_stock, category, seller_name, created_at
 	FROM catalog_items
 	WHERE id = $1 AND deleted_at IS NULL
 	`
@@ -71,6 +72,8 @@ func (r *CatalogRepository) GetItemByID(ctx context.Context, id uuid.UUID) (doma
 		&item.Name,
 		&item.Price,
 		&item.TotalStock,
+		&item.Category,
+		&item.SellerName,
 		&item.CreatedAt,
 	)
 	if err != nil {
@@ -80,4 +83,41 @@ func (r *CatalogRepository) GetItemByID(ctx context.Context, id uuid.UUID) (doma
 		return domain.CatalogItem{}, fmt.Errorf("failed to query item by id: %w", err)
 	}
 	return item, nil
+}
+
+func (r *CatalogRepository) GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error) {
+	query := `
+		SELECT id, name, price, total_stock, category, seller_name, created_at
+		FROM catalog_items WHERE category = $1 AND id != $2 AND deleted_at IS NULL
+		LIMIT 20`
+
+	rows, err := r.pool.Query(ctx, query, item.Category, item.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get catalog items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []domain.CatalogItem
+	for rows.Next() {
+		var item domain.CatalogItem
+		err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.Price,
+			&item.TotalStock,
+			&item.Category,
+			&item.SellerName,
+			&item.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan catalog item: %w", err)
+		}
+		items = append(items, item)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("rows error in catalog items: %w", err)
+	}
+
+	return items, nil
 }

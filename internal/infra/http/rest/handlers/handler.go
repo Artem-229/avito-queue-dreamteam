@@ -25,6 +25,8 @@ func mapErrorIntoStatusCodes(err error) int {
 		return 404
 	case errors.Is(err, domain.ErrNoPurchaseRight):
 		return 403
+	case errors.Is(err, domain.ErrItemSoldOut):
+		return 409
 	default:
 		return 500
 	}
