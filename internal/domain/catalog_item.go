@@ -11,6 +11,8 @@ type CatalogItem struct {
 	Name       string     `json:"name"`
 	Price      float64    `json:"price"`
 	TotalStock int        `json:"total_stock"`
+	Category   string     `json:"category"`
+	SellerName string     `json:"seller_name"`
 	CreatedAt  time.Time  `json:"created_at"`
 	DeletedAt  *time.Time `json:"-"`
 }

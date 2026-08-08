@@ -1,4 +1,4 @@
-package usecases
+package services
 
 import (
 	"context"
@@ -13,17 +13,27 @@ import (
 )
 
 type mockRepo struct {
-	id        uuid.UUID
-	status    domain.PurchaseStatus
-	expiresAt time.Time
-	findErr   error
+	id          uuid.UUID
+	RightStatus domain.PurchaseRightStatus
+	expiresAt   time.Time
+	findErr     error
 
 	markSuccess bool
 	markErr     error
 }
 
-func (m mockRepo) FindByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (uuid.UUID, domain.PurchaseStatus, time.Time, error) {
-	return m.id, m.status, m.expiresAt, m.findErr
+func (m mockRepo) GetByUserAndItem(ctx context.Context, userID uuid.UUID, itemID uuid.UUID) (domain.PurchaseRight, error) {
+	return domain.PurchaseRight{
+		ID:        m.id,
+		UserID:    userID,
+		ItemID:    itemID,
+		Status:    m.RightStatus,
+		ExpiresAt: m.expiresAt,
+	}, m.findErr
+}
+
+func (m mockRepo) Buy(ctx context.Context, userID uuid.UUID, itemID uuid.UUID) error {
+	return nil
 }
 
 func (m mockRepo) MarkAsUsed(ctx context.Context, purchaseID uuid.UUID) (bool, error) {
@@ -34,11 +44,11 @@ func (m mockRepo) MarkAsUsed(ctx context.Context, purchaseID uuid.UUID) (bool, e
 func TestCheckAccess_Granted(t *testing.T) {
 	id := uuid.New()
 	repo := mockRepo{
-		id:        id,
-		status:    domain.StatusGranted,
-		expiresAt: time.Now().Add(time.Hour),
+		id:          id,
+		RightStatus: domain.PurchaseRightStatusGranted,
+		expiresAt:   time.Now().Add(time.Hour),
 	}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
 	purchaseID, _, allowed, _, err := usecase.CheckAccess(context.Background(), uuid.New(), uuid.New())
 
@@ -56,10 +66,10 @@ func TestCheckAccess_Granted(t *testing.T) {
 // Право истекло
 func TestCheckAccess_Expired(t *testing.T) {
 	repo := mockRepo{
-		status:    domain.StatusGranted,
-		expiresAt: time.Now().Add(-time.Hour),
+		RightStatus: domain.PurchaseRightStatusGranted,
+		expiresAt:   time.Now().Add(-time.Hour),
 	}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
 	_, _, allowed, reason, err := usecase.CheckAccess(context.Background(), uuid.New(), uuid.New())
 
@@ -77,10 +87,10 @@ func TestCheckAccess_Expired(t *testing.T) {
 // Право уже использовано
 func TestCheckAccess_NotGranted(t *testing.T) {
 	repo := mockRepo{
-		status:    domain.StatusUsed,
-		expiresAt: time.Now().Add(time.Hour),
+		RightStatus: domain.PurchaseRightStatusUsed,
+		expiresAt:   time.Now().Add(time.Hour),
 	}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
 	_, _, allowed, _, err := usecase.CheckAccess(context.Background(), uuid.New(), uuid.New())
 
@@ -88,7 +98,7 @@ func TestCheckAccess_NotGranted(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if allowed {
-		t.Error("expected allowed=false for status=used")
+		t.Error("expected allowed=false for RightStatus=used")
 	}
 }
 
@@ -97,7 +107,7 @@ func TestCheckAccess_NoRows(t *testing.T) {
 	repo := mockRepo{
 		findErr: pgx.ErrNoRows,
 	}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
 	_, _, allowed, reason, err := usecase.CheckAccess(context.Background(), uuid.New(), uuid.New())
 
@@ -117,7 +127,7 @@ func TestCheckAccess_DBError(t *testing.T) {
 	repo := mockRepo{
 		findErr: errors.New("connection refused"),
 	}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
 	_, _, allowed, _, err := usecase.CheckAccess(context.Background(), uuid.New(), uuid.New())
 
@@ -132,9 +142,9 @@ func TestCheckAccess_DBError(t *testing.T) {
 // Успешная оплата
 func TestPay_Success(t *testing.T) {
 	repo := mockRepo{markSuccess: true}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
-	success, _, err := usecase.Pay(context.Background(), uuid.New())
+	success, _, err := usecase.Pay(context.Background(), uuid.New(), uuid.New())
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -147,9 +157,9 @@ func TestPay_Success(t *testing.T) {
 // Неуспешная оплата, право истекло
 func TestPay_AlreadyUsedOrExpired(t *testing.T) {
 	repo := mockRepo{markSuccess: false}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
-	success, reason, err := usecase.Pay(context.Background(), uuid.New())
+	success, reason, err := usecase.Pay(context.Background(), uuid.New(), uuid.New())
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -165,9 +175,9 @@ func TestPay_AlreadyUsedOrExpired(t *testing.T) {
 // Ошибка БД
 func TestPay_DBError(t *testing.T) {
 	repo := mockRepo{markErr: errors.New("connection refused")}
-	usecase := NewCheckoutUsecase(repo)
+	usecase := NewCheckoutService(repo, repo)
 
-	success, _, err := usecase.Pay(context.Background(), uuid.New())
+	success, _, err := usecase.Pay(context.Background(), uuid.New(), uuid.New())
 
 	if err == nil {
 		t.Fatal("expected non-nil error for db failure")

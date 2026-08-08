@@ -42,7 +42,7 @@ func TestMarkAsUsed_Concurrency(t *testing.T) {
 	purchaseID := uuid.New()
 	_, err = pool.Exec(ctx,
 		`INSERT INTO purchase_rights (id, item_id, user_id, status, expires_at) VALUES ($1, $2, $3, $4, $5)`,
-		purchaseID, itemID, userID, domain.StatusGranted, time.Now().Add(time.Hour))
+		purchaseID, itemID, userID, domain.PurchaseRightStatusGranted, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("insert test purchase right: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestMarkAsUsed_Concurrency(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			success, err := repo.MarkAsUsed(ctx, purchaseID)
+			success, err := repo.MarkAsUsed(ctx, userID, itemID)
 			if err != nil {
 				t.Errorf("MarkAsUsed error: %v", err)
 				return
