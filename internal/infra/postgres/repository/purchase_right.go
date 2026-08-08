@@ -42,14 +42,14 @@ func (r *PurchaseRightRepository) Create(ctx context.Context, userID, itemID uui
 
 func (r *PurchaseRightRepository) GetByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (domain.PurchaseRight, error) {
 	query := `
-		SELECT id, status, user_id, item_id
+		SELECT id, status, user_id, item_id, expires_at
 		FROM purchase_rights
 		WHERE user_id = $1 AND item_id = $2
 		ORDER BY created_at DESC
 		LIMIT 1`
 
 	var right domain.PurchaseRight
-	err := r.pool.QueryRow(ctx, query, userID, itemID).Scan(&right.ID, &right.Status, &right.UserID, &right.ItemID)
+	err := r.pool.QueryRow(ctx, query, userID, itemID).Scan(&right.ID, &right.Status, &right.UserID, &right.ItemID, &right.ExpiresAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.PurchaseRight{}, domain.ErrNoPurchaseRight
@@ -110,11 +110,12 @@ func (r *PurchaseRightRepository) CountActive(ctx context.Context, itemID uuid.U
 }
 
 func (r *PurchaseRightRepository) MarkAsUsed(ctx context.Context, purchaseID uuid.UUID) (success bool, err error) {
+func (r *PurchaseRightRepository) MarkAsUsed(ctx context.Context, userID, itemID uuid.UUID) (success bool, err error) {
 	query := `
-			UPDATE purchase_rights SET status = $2
-			WHERE id = $1 AND status = $3 AND expires_at > now()`
+		UPDATE purchase_rights SET status = $3
+		WHERE user_id = $1 AND item_id = $2 AND status = $4 AND expires_at > now()`
 
-	tag, err := r.pool.Exec(ctx, query, purchaseID, domain.PurchaseRightStatusUsed, domain.PurchaseRightStatusGranted)
+	tag, err := r.pool.Exec(ctx, query, userID, itemID, domain.PurchaseRightStatusUsed, domain.PurchaseRightStatusGranted)
 	if err != nil {
 		return false, err
 	}
