@@ -16,6 +16,12 @@ export function Header() {
 
         <div className={styles.right}>
           <UserSwitcher />
+          <Link to="/simulator" className={styles.devLink}>
+            Симулятор
+          </Link>
+          <Link to="/metrics" className={styles.devLink}>
+            Метрики
+          </Link>
           {import.meta.env.DEV && (
             <Link to="/ui-kit" className={styles.devLink}>
               UI-kit

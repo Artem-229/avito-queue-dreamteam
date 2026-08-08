@@ -2,7 +2,11 @@ import { useRef, useState } from 'react';
 
 import { useNavigate } from 'react-router-dom';
 
-import { type QueueEntry, useLeaveQueue } from '@/entities/queue-entry';
+import {
+  type QueueEntry,
+  useEta,
+  useLeaveQueue,
+} from '@/entities/queue-entry';
 import { formatEta } from '@/shared/lib/formatTime';
 import { Button, Modal, ProgressBar } from '@/shared/ui';
 
@@ -16,7 +20,14 @@ interface QueueWaitingProps {
 export function QueueWaiting({ entry }: QueueWaitingProps) {
   const navigate = useNavigate();
   const leave = useLeaveQueue();
+  const eta = useEta(entry.entryId, true);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const confidenceLabel: Record<string, string> = {
+    high: 'высокая',
+    medium: 'средняя',
+    low: 'низкая',
+  };
 
   const initialAhead = useRef(entry.totalAhead);
   if (entry.totalAhead > initialAhead.current) {
@@ -62,9 +73,10 @@ export function QueueWaiting({ entry }: QueueWaitingProps) {
         <ProgressBar value={progress} tone="queue" />
       </div>
 
-      {entry.etaSeconds !== undefined && (
+      {eta.data && (
         <span className={styles.eta}>
-          Прогноз ИИ: {formatEta(entry.etaSeconds)} ожидания
+          Прогноз ИИ: {formatEta(eta.data.seconds)} ожидания · точность{' '}
+          {confidenceLabel[eta.data.confidence] ?? eta.data.confidence}
         </span>
       )}
 

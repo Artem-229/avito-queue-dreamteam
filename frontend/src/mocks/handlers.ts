@@ -1,8 +1,9 @@
 import { http, HttpResponse } from 'msw';
 
-import { type EtaResult } from '@/entities/queue-entry';
+import { type SimulationParams } from '@/features/simulator/types';
 
 import { ApiFault, queueEngine } from './queue-engine';
+import { runSimulation } from './simulator';
 
 const TERMINAL = ['PURCHASED', 'EXPIRED', 'SOLD_OUT', 'LEFT'];
 
@@ -23,14 +24,10 @@ function faultResponse(error: unknown) {
   );
 }
 
-function confidenceFor(ahead: number): EtaResult['confidence'] {
-  if (ahead <= 1) return 'high';
-  if (ahead <= 4) return 'medium';
-  return 'low';
-}
-
 export const handlers = [
   http.get('/api/items', () => HttpResponse.json(queueEngine.listItems())),
+
+  http.get('/api/metrics', () => HttpResponse.json(queueEngine.getMetrics())),
 
   http.get('/api/items/:id/similar', ({ params }) => {
     try {
@@ -116,12 +113,7 @@ export const handlers = [
 
   http.get('/api/queue/:entryId/eta', ({ params }) => {
     try {
-      const entry = queueEngine.getEntry(String(params.entryId));
-      const result: EtaResult = {
-        seconds: entry.etaSeconds ?? 0,
-        confidence: confidenceFor(entry.totalAhead),
-      };
-      return HttpResponse.json(result);
+      return HttpResponse.json(queueEngine.getEta(String(params.entryId)));
     } catch (error) {
       return faultResponse(error);
     }
@@ -139,6 +131,15 @@ export const handlers = [
     try {
       queueEngine.leave(String(params.entryId));
       return new HttpResponse(null, { status: 204 });
+    } catch (error) {
+      return faultResponse(error);
+    }
+  }),
+
+  http.post('/api/sim/run', async ({ request }) => {
+    try {
+      const body = (await request.json()) as SimulationParams;
+      return HttpResponse.json(runSimulation(body));
     } catch (error) {
       return faultResponse(error);
     }

@@ -47,3 +47,14 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
 }
+
+@media (max-width: 640px) {
+  .devLink,
+  .badge {
+    display: none;
+  }
+
+  .right {
+    gap: var(--space-2);
+  }
+}

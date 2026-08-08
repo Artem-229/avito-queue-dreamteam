@@ -1,5 +1,10 @@
 import { type Item } from '@/entities/item';
-import { type Order, type QueueEntry } from '@/entities/queue-entry';
+import {
+  type EtaResult,
+  type Order,
+  type QueueEntry,
+} from '@/entities/queue-entry';
+import { type QueueMetrics, type QueueMetricsItem } from '@/features/metrics/types';
 
 import { ITEM_SEEDS, type ItemSeed, toItem } from './data';
 
@@ -98,7 +103,7 @@ export class QueueEngine {
   }
 
   join(userId: string, itemId: string): QueueEntry {
-    const state = this.requireItem(itemId);
+    const state = this.ensureItem(itemId);
 
     if (!state.seed.queueEnabled) {
       throw new ApiFault(
@@ -147,6 +152,87 @@ export class QueueEngine {
     const found = this.findEntry(entryId);
     this.tick(found.state);
     return this.toView(found.state, found.entry);
+  }
+
+  getMetrics(): QueueMetrics {
+    let totalWaiting = 0;
+    let totalGranted = 0;
+    let purchased = 0;
+    let expired = 0;
+    const waits: number[] = [];
+    const items: QueueMetricsItem[] = [];
+
+    for (const state of this.items.values()) {
+      this.tick(state);
+
+      let waiting = 0;
+      let granted = 0;
+      for (const entry of state.entries) {
+        if (entry.status === 'WAITING') waiting += 1;
+        else if (entry.status === 'GRANTED') granted += 1;
+        else if (entry.status === 'PURCHASED') purchased += 1;
+        else if (entry.status === 'EXPIRED') expired += 1;
+      }
+
+      const live = state.entries.filter(isLive);
+      const perPerson =
+        state.seed.botServiceMs > 0
+          ? state.seed.botServiceMs / 1000
+          : ETA_SERVICE_SECONDS;
+      live.forEach((entry, index) => {
+        if (entry.status === 'WAITING') waits.push(index * perPerson);
+      });
+
+      totalWaiting += waiting;
+      totalGranted += granted;
+
+      if (state.entries.length > 0) {
+        items.push({
+          itemId: state.seed.id,
+          title: state.seed.title,
+          waiting,
+          granted,
+          stockLeft: state.stock,
+        });
+      }
+    }
+
+    const decided = purchased + expired;
+    const conversion = decided > 0 ? purchased / decided : null;
+    const avgWaitSeconds =
+      waits.length > 0
+        ? Math.round(waits.reduce((sum, value) => sum + value, 0) / waits.length)
+        : null;
+
+    return {
+      totalWaiting,
+      totalGranted,
+      purchased,
+      expired,
+      conversion,
+      avgWaitSeconds,
+      items,
+    };
+  }
+
+  getEta(entryId: string): EtaResult {
+    const found = this.findEntry(entryId);
+    this.tick(found.state);
+
+    const live = found.state.entries.filter(isLive);
+    const index = live.indexOf(found.entry);
+    const ahead = index >= 0 ? index : 0;
+
+    const perPerson =
+      found.state.seed.botServiceMs > 0
+        ? found.state.seed.botServiceMs / 1000
+        : ETA_SERVICE_SECONDS;
+
+    const seconds = Math.round(ahead * perPerson);
+    const confidence: EtaResult['confidence'] =
+      ahead <= 1 ? 'high' : ahead <= 4 ? 'medium' : 'low';
+
+    return { seconds, confidence };
   }
 
   getEntryByItem(userId: string, itemId: string): QueueEntry | null {
@@ -280,6 +366,34 @@ export class QueueEngine {
     if (!state) {
       throw new ApiFault('NOT_FOUND', 'Товар не найден', 404);
     }
+    return state;
+  }
+
+  private ensureItem(id: string): ItemState {
+    const existing = this.items.get(id);
+    if (existing) return existing;
+
+    const seed: ItemSeed = {
+      id,
+      title: 'Товар',
+      price: 0,
+      category: '',
+      sellerName: '',
+      stock: 5,
+      queueEnabled: true,
+      emoji: '📦',
+      accent: '#00AAFF',
+      botsAhead: 2,
+      botServiceMs: 4000,
+    };
+    const state: ItemState = {
+      seed,
+      stock: seed.stock,
+      entries: [],
+      seeded: false,
+      nextFreeAt: 0,
+    };
+    this.items.set(id, state);
     return state;
   }
 
