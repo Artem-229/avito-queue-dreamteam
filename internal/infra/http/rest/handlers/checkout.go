@@ -29,7 +29,8 @@ func (h *CheckoutHandler) GetStatus() gin.HandlerFunc {
 
 		purchaseID, expiresAt, allowed, reason, err := h.Service.CheckAccess(c, userID, itemID)
 		if err != nil {
-			c.JSON(mapErrorIntoStatusCodes(err), gin.H{"error": "не удалось проверить право на покупку"})
+			statusCode, errResp := mapErrorIntoStatusCodes(err)
+			c.JSON(statusCode, errResp)
 			return
 		}
 

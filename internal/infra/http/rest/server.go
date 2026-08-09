@@ -27,7 +27,8 @@ func NewServer(
 
 	h := handlers.New(catalogHandler, queueHandler, checkoutHandler)
 
-	router := NewRouter(h, logger)
+	router := NewRouter(h, logger, conf.Auth.SessionSecret)
+
 	addr := fmt.Sprintf("%s:%d", conf.HTTPServer.Host, conf.HTTPServer.Port)
 	return &Server{
 		server: &http.Server{

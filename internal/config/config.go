@@ -11,6 +11,11 @@ type Config struct {
 	Logger     *Logger     `mapstructure:"logger"`
 	HTTPServer *HTTPServer `mapstructure:"http_server"`
 	Database   *Database   `mapstructure:"database"`
+	Auth       *Auth       `mapstructure:"auth"`
+}
+
+type Auth struct {
+	SessionSecret string `mapstructure:"session_secret"`
 }
 
 type Logger struct {
