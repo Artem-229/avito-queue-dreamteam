@@ -25,3 +25,10 @@ type Queue struct {
 	CreatedAt time.Time
 	DeletedAt *time.Time
 }
+
+type QueueStatusResponse struct {
+	Status    QueueStatus `json:"status"`
+	Message   string      `json:"message"`
+	Position  int         `json:"position,omitempty"`
+	ExpiresAt *time.Time  `json:"expires_at,omitempty"`
+}

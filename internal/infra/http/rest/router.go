@@ -19,8 +19,8 @@ func NewRouter(h *handlers.Handlers, logger *slog.Logger) *gin.Engine {
 	{
 		api.GET("/catalog", h.Catalog.GetList)
 		api.GET("/catalog/:id", h.Catalog.GetByID)
-		api.POST("/catalog/:id/buy", h.Catalog.BuyItem)
 		api.POST("/catalog/:id/queue", h.Queue.Join)
+		api.GET("/catalog/:id/queue", h.Queue.GetStatus)
 		api.GET("/catalog/:id/similar", h.Catalog.GetSimilarItems)
 
 		checkout := api.Group("/checkout/:itemID")
