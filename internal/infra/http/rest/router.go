@@ -8,13 +8,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(h *handlers.Handlers, logger *slog.Logger) *gin.Engine {
+func NewRouter(h *handlers.Handlers, logger *slog.Logger, sessionSecret string) *gin.Engine {
 	router := gin.Default()
 
 	router.GET("/health", h.Health)
 
 	api := router.Group("/api/v1")
-	api.Use(middlewares.TestAuthMiddleware())
+
+	api.POST("/demo/login", h.DemoLogin(sessionSecret))
+
+	api.Use(middlewares.SessionAuthMiddleware(sessionSecret))
 	api.Use(middlewares.LoggerMiddleware(logger))
 	{
 		api.GET("/catalog", h.Catalog.GetList)
@@ -22,7 +25,6 @@ func NewRouter(h *handlers.Handlers, logger *slog.Logger) *gin.Engine {
 		api.POST("/catalog/:id/queue", h.Queue.Join)
 		api.GET("/catalog/:id/queue", h.Queue.GetStatus)
 		api.GET("/catalog/:id/similar", h.Catalog.GetSimilarItems)
-		api.POST("/catalog/:id/buy", h.Catalog.BuyItem)
 
 		checkout := api.Group("/checkout/:itemID")
 		checkout.Use(middlewares.ItemIDMiddleware())

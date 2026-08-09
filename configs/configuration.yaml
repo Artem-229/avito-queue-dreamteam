@@ -6,6 +6,9 @@ http_server:
   host: "0.0.0.0"
   port: 8080
 
+auth:
+  session_secret: "super-secret-key-for-avito-queue"
+
 database:
   host: postgres
   port: 5432

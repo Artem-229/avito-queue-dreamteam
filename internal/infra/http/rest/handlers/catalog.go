@@ -3,7 +3,6 @@ package handlers
 import (
 	"avito-queue/internal/domain"
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -56,42 +55,12 @@ func (h *CatalogHandler) GetByID(c *gin.Context) {
 
 	item, err := h.catalogService.GetCatalogItem(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(mapErrorIntoStatusCodes(err), gin.H{"error": "item not found"})
+		statusCode, errResp := mapErrorIntoStatusCodes(err)
+		c.JSON(statusCode, errResp)
 		return
 	}
 
 	c.JSON(http.StatusOK, item)
-}
-
-func (h *CatalogHandler) BuyItem(c *gin.Context) {
-	itemID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse id"})
-		return
-	}
-
-	userID, err := userIDFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	if err := h.purchaseRightService.Buy(c.Request.Context(), userID, itemID); err != nil {
-		switch {
-		case errors.Is(err, domain.ErrNoPurchaseRight):
-			c.JSON(http.StatusForbidden, gin.H{"error": "no granted purchase right for this item"})
-		case errors.Is(err, domain.ErrItemSoldOut):
-			c.JSON(http.StatusConflict, gin.H{"error": "item is sold out"})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to buy item"})
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "purchase completed",
-		"item_id": itemID,
-	})
 }
 
 func (h *CatalogHandler) GetSimilarItems(c *gin.Context) {
@@ -103,7 +72,8 @@ func (h *CatalogHandler) GetSimilarItems(c *gin.Context) {
 
 	items, err := h.catalogService.GetSimilarItems(c.Request.Context(), itemID)
 	if err != nil {
-		c.JSON(mapErrorIntoStatusCodes(err), gin.H{"error": "failed to fetch similar items"})
+		statusCode, errResp := mapErrorIntoStatusCodes(err)
+		c.JSON(statusCode, errResp)
 		return
 	}
 
