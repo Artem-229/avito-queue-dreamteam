@@ -29,10 +29,20 @@ func TestMarkAsUsed_Concurrency(t *testing.T) {
 
 	ctx := context.Background()
 
+	// Тест интеграционный: без поднятой базы он скипается, а не падает —
+	// иначе `go test ./...` на машине без docker краснеет по причине, не
+	// имеющей отношения к коду.
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		t.Skipf("test database is not reachable at %s (start it via docker compose): %v", dsn, err)
+	}
+
 	itemID := uuid.New()
 	_, err = pool.Exec(ctx,
-		`INSERT INTO catalog_items (id, name, price, total_stock, created_at) VALUES ($1, $2, $3, $4, now())`,
-		itemID, "concurrency test item", 100.0, 1)
+		`INSERT INTO catalog_items (id, name, price_kopecks, total_stock, category, seller_name, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, now())`,
+		itemID, "concurrency test item", 10000, 1, "test-category", "test-seller")
 	if err != nil {
 		t.Fatalf("insert test catalog item: %v", err)
 	}

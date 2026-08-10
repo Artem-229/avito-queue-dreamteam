@@ -3,6 +3,7 @@ package services
 import (
 	"avito-queue/internal/domain"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -11,26 +12,37 @@ import (
 )
 
 type CatalogRepo interface {
+	// LockItem блокирует строку товара первым запросом транзакции (INV-3).
+	LockItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
+	AdjustCounts(ctx context.Context, id uuid.UUID, grantedDelta, usedDelta int) error
 	GetItemByID(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
+	GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error)
 }
 
 type QueueRepo interface {
 	Entry(ctx context.Context, userID, itemID uuid.UUID) error
 	InTx(ctx context.Context, fn func(ctx context.Context) error) error
-	MarkRecordsExpired(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID) error
+	MarkGrantedExpired(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID) (int64, error)
+	NeedsReconcile(ctx context.Context, itemID uuid.UUID) (bool, error)
 	GetWaiting(ctx context.Context, itemID uuid.UUID, freeSlots int) ([]uuid.UUID, error)
-	UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.QueueStatus) error
+	// UpdateStatus переводит запись из from в to; фильтр по from обязателен —
+	// у пользователя может быть несколько записей по товару после повторного входа.
+	UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, from, to domain.QueueStatus) error
 	GetRecord(ctx context.Context, userID, itemID uuid.UUID) (domain.Queue, error)
 	GetPosition(ctx context.Context, queueRecord domain.Queue) (int, error)
 	MarkSoldOut(ctx context.Context, itemID uuid.UUID) error
+	CountWaiting(ctx context.Context, itemID uuid.UUID) (int, error)
+	// Now — время Postgres, а не Go-часов (INV-6): иначе server_time сам
+	// становится источником рассинхронизации при дрейфе app/db-контейнера.
+	Now(ctx context.Context) (time.Time, error)
 }
 
 type PurchaseRightRepo interface {
 	Create(ctx context.Context, userID, itemID uuid.UUID) error
 	CountGranted(ctx context.Context, itemID uuid.UUID) (int, error)
 	CountUsed(ctx context.Context, itemID uuid.UUID) (int, error)
-	UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.PurchaseRightStatus) error
-	ExpireOld(ctx context.Context, itemID uuid.UUID, t time.Time) ([]uuid.UUID, error)
+	UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, from, to domain.PurchaseRightStatus) error
+	ExpireOld(ctx context.Context, itemID uuid.UUID) ([]uuid.UUID, error)
 	GetByUserAndItem(ctx context.Context, userID, itemID uuid.UUID) (domain.PurchaseRight, error)
 }
 
@@ -50,47 +62,105 @@ func NewQueueService(queueRepo QueueRepo, purchaseRightRepo PurchaseRightRepo, c
 	}
 }
 
-func (q *QueueService) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
-	if err := q.QueueRepo.Entry(ctx, userID, itemID); err != nil {
-		return fmt.Errorf("adding user to queue: %w", err)
-	}
-
-	if err := q.Reconcile(ctx, itemID); err != nil {
-		return fmt.Errorf("reconcilling queue: %w", err)
-	}
-
-	return nil
+// statusPresentation — message и next_step на каждое состояние очереди (INV-8).
+var statusPresentation = map[domain.QueueStatus]struct {
+	Message  string
+	NextStep domain.NextStep
+}{
+	domain.QueueStatusNotInQueue: {
+		Message:  "Вы ещё не в очереди на этот товар.",
+		NextStep: domain.NextStep{Kind: "join", Label: "Встаньте в очередь, чтобы получить право на покупку"},
+	},
+	domain.QueueStatusWaiting: {
+		Message:  "Вы в очереди. Пожалуйста, подождите освобождения слота.",
+		NextStep: domain.NextStep{Kind: "wait", Label: "Ожидайте, статус обновится сам"},
+	},
+	domain.QueueStatusGranted: {
+		Message:  "Ваша очередь подошла! У вас есть несколько минут на оплату.",
+		NextStep: domain.NextStep{Kind: "pay", Label: "Оплатите, пока не истекло время"},
+	},
+	domain.QueueStatusPurchased: {
+		Message:  "Покупка успешно завершена.",
+		NextStep: domain.NextStep{Kind: "done", Label: "Покупка завершена"},
+	},
+	domain.QueueStatusExpired: {
+		Message:  "Время вышло, право на покупку сгорело. Вы можете встать в очередь заново.",
+		NextStep: domain.NextStep{Kind: "rejoin", Label: "Встаньте в очередь заново"},
+	},
+	domain.QueueStatusSoldOut: {
+		Message:  "К сожалению, товар закончился. Посмотрите похожие лоты.",
+		NextStep: domain.NextStep{Kind: "browse_similar", Label: "Посмотрите похожие товары"},
+	},
+	domain.QueueStatusCancelled: {
+		Message:  "Вы покинули очередь.",
+		NextStep: domain.NextStep{Kind: "rejoin", Label: "Встаньте в очередь заново, если товар ещё нужен"},
+	},
 }
 
-func (q *QueueService) Reconcile(ctx context.Context, itemID uuid.UUID) error {
-	// Метод сдвига очереди, включает в себя все шаги
-	// Когда человек вступает в очередь он получает себе запись, после этого вызывается сдвиг очереди
-	// Сначала происходит пометка просроченных прав чтобы получить список актульных прав на данный момент
-	// потом сдвиг очереди получает из каталога предмета его сток а из таблицы прав количество активных на данный момент прав покупки
-	// так он считает общее количество прав которое еще можно выдать. После этого он кладет это число в метод выдать права
-	// этот метод в таблице очереди для кол-ва людей равного кол-ву прав выдает им права и тд
-	// 1) Сброс устаревших прав и обновление статусов (например если человек покинул очередь и его статус сменился надо отменить его право)
-	// 2) Пересчет актуального количества прав
-	// 3) Выдача прав новым людям
-	// Метод вызывается после дергания каждой ручки на сервисе чтобы что угодно сдвигало очередь, таким образом пока хоть один человек стоит в очереди она будет работать
-	// Если больше человек чем доступных прав одновременно нажмут купить товар то они все поместятся  в очередь, реконсиляция обнулит просроченные и выдаст права на покупку ровно тому
-	// количеству человек, которым хватит. Все это выполняется в одной транзакции и ручки изменения статуса вызываются только отсюда чтобы исключить гонки и неконсистентность данных
-	// Человек если хочет например покинуть очередь нажимает на кнопку выйти и его статус в очереди помечается как отмененный после чего сдвиг очереди уже сам сбросит его права
-	return q.QueueRepo.InTx(ctx, func(ctx context.Context) error {
-		t := time.Now()
+// Entry — постановка в очередь, идемпотентная по паре пользователь-товар
+// (QUE-02, A-08): повторный вход не ошибка, а тот же конверт статуса, что и
+// GetStatus.
+func (q *QueueService) Entry(ctx context.Context, userID, itemID uuid.UUID) (domain.QueueStatusResponse, error) {
+	if _, err := q.CatalogRepo.GetItemByID(ctx, itemID); err != nil {
+		return domain.QueueStatusResponse{}, fmt.Errorf("checking item exists: %w", err)
+	}
 
-		item, err := q.CatalogRepo.GetItemByID(ctx, itemID)
+	if err := q.QueueRepo.Entry(ctx, userID, itemID); err != nil && !errors.Is(err, domain.ErrUserAlreadyInQueue) {
+		return domain.QueueStatusResponse{}, fmt.Errorf("adding user to queue: %w", err)
+	}
+
+	if err := q.EnsureAdvanced(ctx, itemID); err != nil {
+		return domain.QueueStatusResponse{}, fmt.Errorf("reconciling queue: %w", err)
+	}
+
+	return q.buildStatusResponse(ctx, userID, itemID)
+}
+
+// EnsureAdvanced продвигает очередь товара, только если есть работа: без
+// фонового воркера Reconcile двигается синхронно из любой ручки, и
+// NeedsReconcile — дешёвая проверка без блокировки строки, чтобы частый
+// поллинг статуса не превращал её в горячую точку.
+func (q *QueueService) EnsureAdvanced(ctx context.Context, itemID uuid.UUID) error {
+	need, err := q.QueueRepo.NeedsReconcile(ctx, itemID)
+	if err != nil {
+		return fmt.Errorf("checking if reconcile is needed: %w", err)
+	}
+	if !need {
+		return nil
+	}
+
+	return q.Reconcile(ctx, itemID)
+}
+
+// Reconcile — единственное место (вместе с PurchaseRight.Buy), которое меняет
+// распределение прав (INV-2): гасит просроченные права, возвращает слоты в
+// пул и раздаёт их первым в очереди. Одна транзакция с блокировкой товара
+// первым запросом (INV-3).
+func (q *QueueService) Reconcile(ctx context.Context, itemID uuid.UUID) error {
+	return q.QueueRepo.InTx(ctx, func(ctx context.Context) error {
+		item, err := q.CatalogRepo.LockItem(ctx, itemID)
 		if err != nil {
-			return fmt.Errorf("getting stock: %w", err)
+			return fmt.Errorf("locking item: %w", err)
 		}
 
-		ids, err := q.PurchaseRightRepo.ExpireOld(ctx, itemID, t)
+		expiredUserIDs, err := q.PurchaseRightRepo.ExpireOld(ctx, itemID)
 		if err != nil {
 			return fmt.Errorf("expiring old purchase rights: %w", err)
 		}
 
-		if err := q.QueueRepo.MarkRecordsExpired(ctx, itemID, ids); err != nil {
+		rowsAffected, err := q.QueueRepo.MarkGrantedExpired(ctx, itemID, expiredUserIDs)
+		if err != nil {
 			return fmt.Errorf("expiring queue records: %w", err)
+		}
+		if rowsAffected != int64(len(expiredUserIDs)) {
+			q.logger.Error("queue/purchase_rights granted state mismatch",
+				"item_id", itemID, "expired_rights", len(expiredUserIDs), "expired_queue_rows", rowsAffected)
+		}
+
+		if len(expiredUserIDs) > 0 {
+			if err := q.CatalogRepo.AdjustCounts(ctx, itemID, -len(expiredUserIDs), 0); err != nil {
+				return fmt.Errorf("adjusting stock counters after expiry: %w", err)
+			}
 		}
 
 		activeRights, err := q.PurchaseRightRepo.CountGranted(ctx, itemID)
@@ -103,7 +173,7 @@ func (q *QueueService) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 			return fmt.Errorf("counting used purchase rights: %w", err)
 		}
 
-		if item.TotalStock == usedRights {
+		if usedRights >= item.TotalStock {
 			if err := q.QueueRepo.MarkSoldOut(ctx, item.ID); err != nil {
 				return fmt.Errorf("marking soldOut: %w", err)
 			}
@@ -113,7 +183,8 @@ func (q *QueueService) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 
 		possibleRights := item.TotalStock - activeRights - usedRights
 		if possibleRights < 0 {
-			q.logger.Error("purchase rights is negative", "total stock", item.TotalStock, "activeRights", item.TotalStock)
+			q.logger.Error("purchase rights is negative",
+				"item_id", itemID, "total_stock", item.TotalStock, "active_rights", activeRights, "used_rights", usedRights)
 			return fmt.Errorf("the amount the active rights is larger than item total stock")
 		}
 
@@ -127,8 +198,14 @@ func (q *QueueService) Reconcile(ctx context.Context, itemID uuid.UUID) error {
 				return fmt.Errorf("creating purchase right for user: %w", err)
 			}
 
-			if err := q.QueueRepo.UpdateStatus(ctx, userID, itemID, domain.QueueStatusGranted); err != nil {
+			if err := q.QueueRepo.UpdateStatus(ctx, userID, itemID, domain.QueueStatusWaiting, domain.QueueStatusGranted); err != nil {
 				return fmt.Errorf("updating user status: %w", err)
+			}
+		}
+
+		if len(userIDs) > 0 {
+			if err := q.CatalogRepo.AdjustCounts(ctx, itemID, len(userIDs), 0); err != nil {
+				return fmt.Errorf("adjusting stock counters after grant: %w", err)
 			}
 		}
 
@@ -150,26 +227,134 @@ func (q *QueueService) GetPosition(ctx context.Context, userID, itemID uuid.UUID
 	return pos, nil
 }
 
-func (q *QueueService) GetStatus(ctx context.Context, userID, itemID uuid.UUID) (status domain.QueueStatus, position int, expiresAt *time.Time, err error) {
-	record, err := q.QueueRepo.GetRecord(ctx, userID, itemID)
-	if err != nil {
-		return "", 0, nil, fmt.Errorf("getting queue record: %w", err)
+// GetStatus — единый конверт статуса для GET /catalog/:id/queue/me.
+func (q *QueueService) GetStatus(ctx context.Context, userID, itemID uuid.UUID) (domain.QueueStatusResponse, error) {
+	if err := q.EnsureAdvanced(ctx, itemID); err != nil {
+		return domain.QueueStatusResponse{}, fmt.Errorf("ensuring queue advanced: %w", err)
 	}
 
-	switch record.Status {
+	return q.buildStatusResponse(ctx, userID, itemID)
+}
+
+func (q *QueueService) buildStatusResponse(ctx context.Context, userID, itemID uuid.UUID) (domain.QueueStatusResponse, error) {
+	// Отсутствие записи — тоже состояние (not_in_queue), а не 404 (INV-8).
+	status := domain.QueueStatusNotInQueue
+
+	record, err := q.QueueRepo.GetRecord(ctx, userID, itemID)
+	switch {
+	case err == nil:
+		status = record.Status
+	case !errors.Is(err, domain.ErrUserNotFound):
+		return domain.QueueStatusResponse{}, fmt.Errorf("getting queue record: %w", err)
+	}
+
+	resp := domain.QueueStatusResponse{
+		Status:       status,
+		Alternatives: []uuid.UUID{},
+	}
+
+	if presentation, ok := statusPresentation[status]; ok {
+		resp.Message = presentation.Message
+		resp.NextStep = presentation.NextStep
+	}
+
+	switch status {
 	case domain.QueueStatusWaiting:
-		position, err = q.QueueRepo.GetPosition(ctx, record)
+		resp.Position, err = q.QueueRepo.GetPosition(ctx, record)
 		if err != nil {
-			return "", 0, nil, fmt.Errorf("getting position: %w", err)
+			return domain.QueueStatusResponse{}, fmt.Errorf("getting position: %w", err)
 		}
 	case domain.QueueStatusGranted:
 		right, rightErr := q.PurchaseRightRepo.GetByUserAndItem(ctx, userID, itemID)
 		if rightErr != nil {
-			return "", 0, nil, fmt.Errorf("getting purchase right: %w", rightErr)
+			return domain.QueueStatusResponse{}, fmt.Errorf("getting purchase right: %w", rightErr)
 		}
 		expiresAtValue := right.ExpiresAt
-		expiresAt = &expiresAtValue
+		resp.ExpiresAt = &expiresAtValue
+	case domain.QueueStatusSoldOut, domain.QueueStatusExpired:
+		resp.Alternatives, err = q.alternatives(ctx, itemID)
+		if err != nil {
+			return domain.QueueStatusResponse{}, fmt.Errorf("getting alternatives: %w", err)
+		}
 	}
 
-	return record.Status, position, expiresAt, nil
+	resp.QueueSize, err = q.QueueRepo.CountWaiting(ctx, itemID)
+	if err != nil {
+		return domain.QueueStatusResponse{}, fmt.Errorf("counting queue size: %w", err)
+	}
+
+	resp.ServerTime, err = q.QueueRepo.Now(ctx)
+	if err != nil {
+		return domain.QueueStatusResponse{}, fmt.Errorf("getting server time: %w", err)
+	}
+
+	return resp, nil
+}
+
+// alternatives — похожие лоты для sold_out/expired, только для них: остальные
+// статусы поллятся раз в секунду и в альтернативах не нуждаются. Распроданные
+// лоты отсеивает сам GetSimilarItems.
+func (q *QueueService) alternatives(ctx context.Context, itemID uuid.UUID) ([]uuid.UUID, error) {
+	item, err := q.CatalogRepo.GetItemByID(ctx, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("getting item: %w", err)
+	}
+
+	similar, err := q.CatalogRepo.GetSimilarItems(ctx, item)
+	if err != nil {
+		return nil, fmt.Errorf("getting similar items: %w", err)
+	}
+
+	ids := make([]uuid.UUID, 0, len(similar))
+	for _, alternative := range similar {
+		ids = append(ids, alternative.ID)
+	}
+
+	return ids, nil
+}
+
+// Leave — выход из очереди. Если было выдано право, оно гасится в той же
+// транзакции, что и запись очереди (INV-5). Reconcile после коммита отдаёт
+// освободившийся слот следующему сразу, а не при следующем случайном опросе.
+func (q *QueueService) Leave(ctx context.Context, userID, itemID uuid.UUID) (domain.QueueStatusResponse, error) {
+	err := q.QueueRepo.InTx(ctx, func(ctx context.Context) error {
+		if _, err := q.CatalogRepo.LockItem(ctx, itemID); err != nil {
+			return fmt.Errorf("locking item: %w", err)
+		}
+
+		record, err := q.QueueRepo.GetRecord(ctx, userID, itemID)
+		if err != nil {
+			return fmt.Errorf("getting queue record: %w", err)
+		}
+
+		if record.Status != domain.QueueStatusWaiting && record.Status != domain.QueueStatusGranted {
+			return domain.ErrCannotLeaveQueue
+		}
+
+		if record.Status == domain.QueueStatusGranted {
+			if err := q.PurchaseRightRepo.UpdateStatus(ctx, userID, itemID,
+				domain.PurchaseRightStatusGranted, domain.PurchaseRightStatusCancelled); err != nil {
+				return fmt.Errorf("cancelling purchase right: %w", err)
+			}
+
+			if err := q.CatalogRepo.AdjustCounts(ctx, itemID, -1, 0); err != nil {
+				return fmt.Errorf("adjusting stock counters: %w", err)
+			}
+		}
+
+		if err := q.QueueRepo.UpdateStatus(ctx, userID, itemID, record.Status, domain.QueueStatusCancelled); err != nil {
+			return fmt.Errorf("cancelling queue record: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return domain.QueueStatusResponse{}, fmt.Errorf("leaving queue: %w", err)
+	}
+
+	if err := q.Reconcile(ctx, itemID); err != nil {
+		return domain.QueueStatusResponse{}, fmt.Errorf("reconciling after leave: %w", err)
+	}
+
+	return q.buildStatusResponse(ctx, userID, itemID)
 }

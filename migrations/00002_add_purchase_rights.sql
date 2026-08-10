@@ -16,6 +16,9 @@ CREATE UNIQUE INDEX idx_purchase_rights_user_item_active
     ON purchase_rights (user_id, item_id)
     WHERE status = 'granted';
 
+CREATE INDEX idx_purchase_rights_item_status_expires
+    ON purchase_rights (item_id, status, expires_at);
+
 -- +goose StatementEnd
 
 -- +goose Down

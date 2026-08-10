@@ -12,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type TransactionKey string
+type transactionKey string
 
-const key TransactionKey = "transaction_key"
+const key transactionKey = "transaction_key"
 
 type QueueRepository struct {
 	pool *pgxpool.Pool
@@ -42,22 +42,19 @@ func (q *QueueRepository) InTx(ctx context.Context, fn func(ctx context.Context)
 	return tx.Commit(ctx)
 }
 
-func ExtractTx(ctx context.Context) (pgx.Tx, bool) {
-	if tx, ok := ctx.Value(key).(pgx.Tx); ok {
-		return tx, true
-	}
-	return nil, false
-}
-
+// Entry ставит пользователя в очередь. created_at не передаётся из Go —
+// колонка заполняется DEFAULT now() самой базой, потому что created_at ключ
+// сортировки FIFO, и часы app-контейнера в этой роли рассинхронизировали бы
+// порядок между репликами (INV-6).
 func (q *QueueRepository) Entry(ctx context.Context, userID, itemID uuid.UUID) error {
 	query := `
-		INSERT INTO queue (user_id, item_id, status, created_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO queue (user_id, item_id, status)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (user_id, item_id) WHERE status IN ('waiting', 'granted') DO NOTHING;`
 
-	res, err := q.pool.Exec(ctx, query, userID, itemID, domain.QueueStatusWaiting, time.Now())
+	res, err := db(ctx, q.pool).Exec(ctx, query, userID, itemID, domain.QueueStatusWaiting)
 	if err != nil {
-		return fmt.Errorf("inserting purchase rights: %w", err)
+		return fmt.Errorf("inserting queue record: %w", err)
 	}
 	if res.RowsAffected() == 0 {
 		return domain.ErrUserAlreadyInQueue
@@ -66,35 +63,76 @@ func (q *QueueRepository) Entry(ctx context.Context, userID, itemID uuid.UUID) e
 	return nil
 }
 
-func (q *QueueRepository) MarkRecordsExpired(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID) error {
+// MarkGrantedExpired переводит в expired записи очереди тех, у кого сгорело
+// уже выданное право — их queue.status на этот момент 'granted', не 'waiting'.
+// Возвращает число затронутых строк, чтобы вызывающий мог сверить его с
+// количеством userIDs и заметить рассинхронизацию purchase_rights/queue (INV-5).
+func (q *QueueRepository) MarkGrantedExpired(ctx context.Context, itemID uuid.UUID, userIDs []uuid.UUID) (int64, error) {
+	if len(userIDs) == 0 {
+		return 0, nil
+	}
+
 	query := `
-		UPDATE queue 
-		SET status = $1 
-		WHERE item_id = $2 
+		UPDATE queue
+		SET status = $1
+		WHERE item_id = $2
 		  AND user_id = ANY($3)
 		  AND status = $4`
 
-	tx, ok := ExtractTx(ctx)
-	if !ok {
-		return fmt.Errorf("could not extract tx")
-	}
-
-	_, err := tx.Exec(ctx, query, domain.QueueStatusExpired, itemID, userIDs, domain.QueueStatusWaiting)
+	tag, err := db(ctx, q.pool).Exec(ctx, query, domain.QueueStatusExpired, itemID, userIDs, domain.QueueStatusGranted)
 	if err != nil {
-		return fmt.Errorf("marking queue records expired: %w", err)
+		return 0, fmt.Errorf("marking queue records expired: %w", err)
 	}
 
-	return nil
+	return tag.RowsAffected(), nil
+}
+
+// NeedsReconcile — дешёвая проверка без блокировки товара, чтобы частый
+// поллинг статуса не превращал её в горячую точку.
+//
+// Предикат обязан покрывать все действия Reconcile, иначе действие
+// недостижимо: помимо просроченных прав это ещё и переход в sold_out — при
+// выкупленном стоке свободных слотов нет по определению, и одна лишь проверка
+// "свободный слот > 0" никогда не пустила бы Reconcile выставить sold_out
+// (тогда ожидающий висел бы в waiting на распроданный товар вечно, A-09).
+func (q *QueueRepository) NeedsReconcile(ctx context.Context, itemID uuid.UUID) (bool, error) {
+	query := `
+		SELECT
+			EXISTS (
+				SELECT 1 FROM purchase_rights
+				 WHERE item_id = $1 AND status = $2 AND expires_at < now()
+			)
+			OR (
+				EXISTS (
+					SELECT 1 FROM queue WHERE item_id = $1 AND status = $3
+				)
+				AND EXISTS (
+					SELECT 1 FROM catalog_items
+					 WHERE id = $1 AND deleted_at IS NULL
+					   AND (
+					        total_stock - granted_count - used_count > 0
+					        OR used_count >= total_stock
+					   )
+				)
+			)`
+
+	var need bool
+	err := db(ctx, q.pool).QueryRow(ctx, query, itemID, domain.PurchaseRightStatusGranted, domain.QueueStatusWaiting).Scan(&need)
+	if err != nil {
+		return false, fmt.Errorf("checking if reconcile is needed: %w", err)
+	}
+
+	return need, nil
 }
 
 func (q *QueueRepository) GetWaiting(ctx context.Context, itemID uuid.UUID, freeSlots int) ([]uuid.UUID, error) {
 	query := `
 			SELECT user_id FROM queue
 			WHERE item_id = $1 AND status = $2
-			ORDER BY created_at ASC
+			ORDER BY created_at, user_id ASC
 			LIMIT $3`
 
-	rows, err := q.pool.Query(ctx, query, itemID, domain.QueueStatusWaiting, freeSlots)
+	rows, err := db(ctx, q.pool).Query(ctx, query, itemID, domain.QueueStatusWaiting, freeSlots)
 	if err != nil {
 		return nil, fmt.Errorf("getting waiting users from queue: %w", err)
 	}
@@ -116,19 +154,51 @@ func (q *QueueRepository) GetWaiting(ctx context.Context, itemID uuid.UUID, free
 	return userIDs, nil
 }
 
-func (q *QueueRepository) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, status domain.QueueStatus) error {
-	query := `UPDATE queue SET status = $1 WHERE user_id = $2 AND item_id = $3`
-	_, err := q.pool.Exec(ctx, query, status, userID, itemID)
+// CountWaiting — размер очереди для конверта статуса (queue_size).
+func (q *QueueRepository) CountWaiting(ctx context.Context, itemID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM queue WHERE item_id = $1 AND status = $2`
+
+	var count int
+	err := db(ctx, q.pool).QueryRow(ctx, query, itemID, domain.QueueStatusWaiting).Scan(&count)
 	if err != nil {
-		return fmt.Errorf("update purchase_right status: %w", err)
+		return 0, fmt.Errorf("counting waiting queue records: %w", err)
 	}
+
+	return count, nil
+}
+
+// Now — время Postgres для server_time в конверте статуса (INV-6).
+func (q *QueueRepository) Now(ctx context.Context) (time.Time, error) {
+	var t time.Time
+	if err := db(ctx, q.pool).QueryRow(ctx, `SELECT now()`).Scan(&t); err != nil {
+		return time.Time{}, fmt.Errorf("getting server time: %w", err)
+	}
+
+	return t, nil
+}
+
+// UpdateStatus переводит запись очереди из from в to. Фильтр по from
+// обязателен: у пользователя может быть несколько записей по товару (старая
+// expired, новая после повторного входа), и без фильтра UPDATE задел бы обе.
+// Заодно даёт CAS-семантику: 0 затронутых строк — ошибка, а не «нечего делать».
+func (q *QueueRepository) UpdateStatus(ctx context.Context, userID, itemID uuid.UUID, from, to domain.QueueStatus) error {
+	query := `UPDATE queue SET status = $1 WHERE user_id = $2 AND item_id = $3 AND status = $4`
+
+	tag, err := db(ctx, q.pool).Exec(ctx, query, to, userID, itemID, from)
+	if err != nil {
+		return fmt.Errorf("update queue status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("queue %s -> %s for user %s: %w", from, to, userID, domain.ErrStatusConflict)
+	}
+
 	return nil
 }
 
 func (q *QueueRepository) MarkSoldOut(ctx context.Context, itemID uuid.UUID) error {
 	query := `UPDATE queue SET status = $1 WHERE item_id = $2 and status = $3`
 
-	_, err := q.pool.Exec(ctx, query, domain.QueueStatusSoldOut, itemID, domain.QueueStatusWaiting)
+	_, err := db(ctx, q.pool).Exec(ctx, query, domain.QueueStatusSoldOut, itemID, domain.QueueStatusWaiting)
 	if err != nil {
 		return fmt.Errorf("marking sold_out: %w", err)
 	}
@@ -138,20 +208,19 @@ func (q *QueueRepository) MarkSoldOut(ctx context.Context, itemID uuid.UUID) err
 
 func (q *QueueRepository) GetRecord(ctx context.Context, userID, itemID uuid.UUID) (domain.Queue, error) {
 	query := `
-		SELECT id, user_id, item_id, status, created_at, deleted_at
+		SELECT id, user_id, item_id, status, created_at
 		FROM queue
 		WHERE user_id = $1 AND item_id = $2
 		ORDER BY created_at DESC
 		LIMIT 1`
 
 	var queueRecord domain.Queue
-	err := q.pool.QueryRow(ctx, query, userID, itemID).Scan(
+	err := db(ctx, q.pool).QueryRow(ctx, query, userID, itemID).Scan(
 		&queueRecord.ID,
 		&queueRecord.UserID,
 		&queueRecord.ItemID,
 		&queueRecord.Status,
 		&queueRecord.CreatedAt,
-		&queueRecord.DeletedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -163,13 +232,20 @@ func (q *QueueRepository) GetRecord(ctx context.Context, userID, itemID uuid.UUI
 	return queueRecord, nil
 }
 
-// GetPosition возвращает позицию пользователя в очереди (1 - следующий на выдачу
-// права): считает, сколько записей в статусе waiting встали в очередь раньше него.
+// GetPosition — позиция в очереди (1 = следующий на выдачу права). Сравнение
+// идёт по кортежу (created_at, user_id), тому же ключу, по которому сортирует
+// GetWaiting — иначе при равных created_at позиция разойдётся с реальным
+// порядком выдачи (INV-10).
 func (q *QueueRepository) GetPosition(ctx context.Context, queueRecord domain.Queue) (int, error) {
-	query := `SELECT COUNT(*) FROM queue WHERE item_id = $1 AND status = $2 AND created_at < $3`
+	query := `
+			SELECT COUNT(*)
+			FROM queue
+			WHERE item_id = $1 AND status = $2 AND (created_at, user_id) < ($3, $4)`
 
 	var ahead int
-	err := q.pool.QueryRow(ctx, query, queueRecord.ItemID, domain.QueueStatusWaiting, queueRecord.CreatedAt).Scan(&ahead)
+	err := db(ctx, q.pool).QueryRow(ctx, query,
+		queueRecord.ItemID, domain.QueueStatusWaiting, queueRecord.CreatedAt, queueRecord.UserID,
+	).Scan(&ahead)
 	if err != nil {
 		return 0, fmt.Errorf("counting queue position: %w", err)
 	}

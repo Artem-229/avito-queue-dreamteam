@@ -1,228 +1,176 @@
 # AGENTS.md
 
-Справочник по проекту для агентов и разработчиков, работающих в этом репозитории.
+Справочник по репозиторию для агентов и разработчиков. Держим коротким и нормативным: длинный
+AGENTS.md увеличивает риск галлюцинаций и расхождений между агентами разных участников команды.
+
+* **Инварианты и текущее состояние** — [CLAUDE.md](./CLAUDE.md).
+* **Требования** — `docs/REQUIREMENTS.md` + `REQUIREMENTS-PATCH.md`.
+* **Для человека: запуск, API, ключевые решения** — [README.md](./README.md).
 
 ## О проекте
 
-MVP сервиса пользовательской очереди на дефицитные товары (Avito Start, кейс 2, команда "Dream Team").
-Пользователь встаёт в очередь перед чекаутом и получает временное персональное право на покупку —
-система гарантирует, что одна единица товара не уйдёт двум покупателям одновременно.
+MVP сервиса пользовательской очереди на дефицитные товары (Avito Start, кейс 2, «Dream Team»).
+Пользователь встаёт в очередь перед чекаутом и получает временное персональное право на покупку.
+Система гарантирует, что одна единица товара не уйдёт двум покупателям.
 
 ## Стек
 
-- **Backend:** Go 1.25, gin (HTTP-роутер), pgx/v5 (Postgres-драйвер), goose (миграции, применяются
-  отдельным контейнером, не самим приложением), viper (конфиг)
-- **Frontend:** React + TypeScript + Vite (директория `frontend/`, feature-sliced структура)
-- **БД:** PostgreSQL 17
-- **Запуск:** Docker Compose (postgres + goose-migrator + app)
+* **Backend:** Go 1.25, gin, pgx/v5, goose (миграции — отдельный контейнер `migrator`), viper
+* **Frontend:** React + TypeScript + Vite, feature-sliced (`frontend/`)
+* **БД:** PostgreSQL 17 — единственное хранилище, без Redis и брокеров (NFR-03/NFR-04)
+* **Запуск:** Docker Compose (postgres + migrator + app + frontend)
 
 ## Структура backend
 
 ```
-/cmd                            — точка входа (main.go)
+/cmd                            — точка входа
 /internal
-  /app                          — сборка зависимостей (App, Repositories, Services), старт/остановка
-  /config                       — чтение configs/configuration.yaml через viper
-  /domain                       — доменные типы: CatalogItem, PurchaseRight, QueueService, сентинел-ошибки
-  /infra/http/rest              — HTTP-слой на gin: server.go, router.go, handlers/, middlewares/
-  /infra/postgres/repository    — репозитории для Catalog, QueueService, PurchaseRight (pgx)
-  /services                     — сервисный слой: CatalogService, QueueService (Reconcile-логика), PurchaseRight
-/migrations                     — goose-миграции (нумерация 00001, 00002, ...)
-/configs                        — configuration.yaml
-/docs                           — REQUIREMENTS.md
-/frontend                       — отдельное SPA (Vite/React), общается с backend через /api/v1
+  /app                          — сборка зависимостей, старт/остановка
+  /config                       — configs/configuration.yaml через viper + env-переменные
+  /domain                       — доменные типы и сентинел-ошибки, без внешних зависимостей
+  /infra/http/rest              — gin: server.go, router.go, handlers/, middlewares/, session/
+  /infra/postgres/repository    — репозитории (pgx), транзакции, db(ctx, pool)
+  /services                     — CatalogService, QueueService (Reconcile), PurchaseRight,
+                                  DemoService, StatsService + интеграционные тесты
+/migrations                     — goose, нумерация 00001, 00002, ...
+/docs                           — REQUIREMENTS.md и производные
 ```
 
-Слои единообразны: `internal/infra/postgres/repository` → `internal/services` → `internal/infra/http/rest/handlers`.
-Интерфейсы репозиториев объявлены на стороне потребителя (в `internal/services`), не в самом репозитории.
+Правило зависимостей: `repository → services → handlers`, `domain` ни от чего не зависит.
+Интерфейсы репозиториев объявлены на стороне потребителя (в `services`). Хендлеры обращаются
+только к сервисам, никогда к репозиториям напрямую.
+
+## Инварианты
+
+Нормативный список — [CLAUDE.md](./CLAUDE.md) §1 (INV-1…INV-11). Краткая шпаргалка паттернов,
+которые при ревью означают дефект:
+
+| Что видно в коде | Нарушение |
+|---|---|
+| `r.pool.Exec(` / `r.pool.Query(` / `r.pool.QueryRow(` в `repository/` | INV-4 (ловит `forbidigo`) |
+| Мутация прав или очереди без предшествующего `LockItem` в той же tx | INV-3 |
+| `time.Now()` при вычислении `expires_at` или `created_at` очереди | INV-6 |
+| TTL-литерал в Go-коде вместо `catalog_items.hold_ttl_seconds` | INV-6 |
+| `ORDER BY created_at` без тайбрейкера `user_id` в выборках очереди | INV-10 |
+| `total_stock ==` / `count ==` при проверке распроданности | INV-9 |
+| Запись `queue.status` и `purchase_rights.status` в разных транзакциях | INV-5 |
+| `UPDATE ... SET status` без фильтра по исходному статусу | INV-11 |
+| Новое состояние в ответе API без `message`/`next_step` | INV-8 |
+| Вызов LLM, `http.Client` или `time.Sleep` между `InTx` и COMMIT | INV-7 |
+| Импорт `pgx`, `gin` или `net/http` в `internal/domain` | правило зависимостей |
+| Новая ручка покупки помимо `POST /catalog/:id/purchase` | INV-2 |
+| Бизнес-логика состояний очереди на фронте | контракт: истина только на бэке |
 
 ## Домен
 
-- **CatalogItem** — товар: `id, name, price, total_stock, created_at, deleted_at`.
-- **PurchaseRight** — персональное временное право на покупку одной единицы товара:
-  `id, user_id, item_id, status(granted|used|cancelled|expired), created_at, expires_at`.
-- **QueueService** (таблица `queue`) — запись в очереди пользователя на товар:
-  `id, user_id, item_id, status(waiting|granted|sold_out|cancelled|expired|purchased), created_at, deleted_at`.
+* **CatalogItem** — `id, name, price_kopecks, total_stock, granted_count, used_count,
+  hold_ttl_seconds, category, seller_name, created_at, deleted_at`.
+  `CHECK (granted_count + used_count <= total_stock)` — последняя линия защиты от оверселла.
+* **PurchaseRight** — `id, user_id, item_id, status(granted|used|cancelled|expired),
+  created_at, expires_at`. Партиальный `UNIQUE (user_id, item_id) WHERE status='granted'`.
+* **Queue** — `id, user_id, item_id, status(waiting|granted|purchased|expired|sold_out|cancelled),
+  created_at`. Партиальный `UNIQUE (user_id, item_id) WHERE status IN ('waiting','granted')`.
 
-### Бизнес-логика очереди (`services.QueueService`)
+Записи не удаляются, меняется только `status` — история состояний остаётся. Повторный вход
+(после `expired`/`cancelled`/`sold_out`/`purchased`) создаёт новую запись; актуальной считается
+последняя по `created_at`.
 
-- `Entry(userID, itemID)` — добавляет пользователя в очередь (status = waiting) и сразу вызывает `Reconcile`.
-- `Reconcile(itemID)` — сдвиг очереди, единая точка изменения статусов, выполняется в транзакции:
-  1. Просрочка старых `purchase_rights` (`ExpireOld`) → синхронный сброс статусов очереди (`MarkRecordsExpired`).
-  2. Подсчёт активных прав (`CountActive`) и остатка стока (`CatalogRepo.GetItemByID`) → сколько прав ещё можно выдать.
-  3. Выдача прав первым в очереди (`GetWaiting` + `PurchaseRightRepo.Create` + `QueueRepo.UpdateStatus`).
+## HTTP API (действующий контракт)
 
-`services.PurchaseRight.Buy(userID, itemID)` — фиксирует покупку: находит `granted`-право пользователя
-на товар и переводит его в `used`. Если права нет или оно не `granted` — `domain.ErrNoPurchaseRight`.
+Все таймстемпы RFC3339, все id — UUID. Ошибки — единый формат
+`{"code":"MACHINE_CODE","message":"текст для человека"}`. Полный список кодов — README «Ошибки»;
+основные: `UNAUTHORIZED`, `INVALID_SESSION`, `INVALID_ITEM_ID`, `ITEM_NOT_FOUND`,
+`NO_PURCHASE_RIGHT`, `ITEM_SOLD_OUT`, `ALREADY_IN_QUEUE`, `NOT_IN_QUEUE`, `CANNOT_LEAVE_QUEUE`,
+`STATUS_CONFLICT`, `INTERNAL_SERVER_ERROR`.
 
-### HTTP API-контракт
+Авторизация — подписанный токен из `POST /api/v1/demo/login`: httpOnly-кука `session` **или**
+заголовок `Authorization: Bearer <token>` (заголовок приоритетнее — так работает переключатель
+демо-аккаунтов). Неподписанной идентификации не существует.
 
-Авторизация — `middlewares.TestAuthMiddleware`: все `/api/v1/*`-ручки читают заголовок
-`X-User-Id` (UUID). При отсутствии заголовка подставляется нулевой UUID
-(`00000000-0000-0000-0000-000000000000`); если заголовок есть, но не парсится как UUID —
-`400 {"error":"invalid X-User-Id header"}`. Это временная заглушка для разработки, не
-боевая авторизация — таблицы пользователей нет, любой валидный UUID принимается как есть.
+| Метод | Путь | Назначение |
+|---|---|---|
+| `GET` | `/health` | без авторизации, пингует БД |
+| `POST` | `/api/v1/demo/login` | выдать подписанную демо-сессию, без авторизации |
+| `GET` | `/api/v1/catalog` | список товаров |
+| `GET` | `/api/v1/catalog/:id` | товар |
+| `GET` | `/api/v1/catalog/:id/similar` | похожие лоты той же категории, только нераспроданные, лимит 20 |
+| `POST` | `/api/v1/catalog/:id/queue` | встать в очередь, идемпотентно; возвращает конверт статуса |
+| `GET` | `/api/v1/catalog/:id/queue/me` | статус и позиция; внутри `EnsureAdvanced`; поллится раз в секунду |
+| `DELETE` | `/api/v1/catalog/:id/queue/me` | выйти из очереди; активное право отзывается |
+| `POST` | `/api/v1/catalog/:id/purchase` | использовать право — единственный путь покупки |
+| `GET` | `/api/v1/stats` | метрики: очереди по товарам, конверсия права в покупку, среднее ожидание |
+| `POST` | `/api/v1/demo/items/:id/expire-now` | демо: сжечь выданные права (только при `DEMO_ENABLED`) |
+| `POST` | `/api/v1/demo/simulate` | демо: N конкурентных входов, 1–100 (только при `DEMO_ENABLED`) |
 
-Все таймстемпы — RFC3339 (`time.Time` в JSON), все id — UUID-строки.
-
-#### `GET /health`
-
-`200 {"status":"ok"}`. Без авторизации.
-
-#### `GET /api/v1/catalog`
-
-Список товаров. `200`, тело — массив (`[]`, если товаров нет):
-
-```json
-[
-  {
-    "id": "b00c13dd-9320-49dd-995b-e5a757a0d439",
-    "name": "Бюст Дзержинского",
-    "price": 500,
-    "total_stock": 150,
-    "category": "Коллекционные фигуры",
-    "seller_name": "Ретро Сувениры",
-    "created_at": "2026-08-08T20:08:05.877491Z"
-  }
-]
-```
-
-#### `GET /api/v1/catalog/:id`
-
-Один товар. `200` — объект как выше (без массива).
-`400 {"error":"failed to parse id"}` — `:id` не UUID.
-`404 {"error":"item not found"}` — валидный UUID, товара с таким id нет.
-
-#### `GET /api/v1/catalog/:id/similar`
-
-Похожие товары — те же поля, что и в списке, товары той же `category`, сам товар
-исключён, лимит 20. `200`, тело — массив (`[]`, если похожих нет). Коды ошибок — как у
-`GET /api/v1/catalog/:id` (сначала ищет исходный товар по `:id`, чтобы узнать его
-category).
-
-#### `POST /api/v1/catalog/:id/queue` — встать в очередь на товар
-
-Идемпотентно: повторный вызов тем же `X-User-Id` для того же товара, пока участие ещё
-активно (`waiting`/`granted`), не создаёт вторую запись.
-
-`202 {"message":"joined queue","item_id":"<uuid>"}` — встал в очередь. Внутри синхронно
-отрабатывает `Reconcile`, так что если слот свободен — участник может сразу оказаться в
-`granted`, а не в `waiting` (проверить статус можно только через `GET /checkout/:itemID`,
-см. ниже — отдельной ручки со статусом+позицией сейчас нет, см. «Известные ограничения»).
-`400 {"error":"failed to parse id"}` — `:id` не UUID.
-`404 {"error":"item not found"}` — товара нет.
-`409 {"error":"already in queue"}` — уже стоит в очереди / уже есть granted-право на этот товар.
-
-#### `POST /api/v1/catalog/:id/buy` — купить (использовать granted-право)
-
-Работает только если у `X-User-Id` есть активное `granted`-право на этот товар — прямого
-перехода к покупке без очереди нет. Атомарно помечает право `used` и переводит участие в
-очереди в `purchased`.
-
-`200 {"message":"purchase completed","item_id":"<uuid>"}`.
-`400 {"error":"failed to parse id"}` — `:id` не UUID.
-`403 {"error":"no granted purchase right for this item"}` — права нет вообще, оно не
-`granted`, уже использовано, либо истекло.
-`409 {"error":"item is sold out"}` — весь сток товара уже распродан (`used >= total_stock`) —
-именно эта причина отказа, а не общая 403, если применимо.
-
-#### `GET /api/v1/checkout/:itemID` — проверить право перед переходом к оплате
-
-Гейт «перед покупкой» (CHK-01/CHK-02): не мутирует, только читает текущее состояние права.
-
-**Важно:** эта ручка всегда отвечает `HTTP 200`, даже когда `allowed:false` — смотреть
-нужно на поле `allowed`, а не на код ответа.
+Конверт статуса — единый для POST/GET/DELETE ручек очереди, поле `status` принимает
+`not_in_queue | waiting | granted | purchased | expired | sold_out | cancelled`:
 
 ```json
 {
-  "purchase_id": "bd3cc16c-a07a-429c-ab39-51f87beffb1c",
-  "allowed": true,
-  "expires_at": "2026-08-08T20:16:12.701794Z",
-  "reason": ""
+  "status": "waiting", "position": 7, "queue_size": 23, "eta_seconds": null,
+  "expires_at": null, "server_time": "2026-08-09T12:32:56Z",
+  "message": "Вы в очереди. Пожалуйста, подождите освобождения слота.",
+  "next_step": { "kind": "wait", "label": "Ожидайте, статус обновится сам" },
+  "alternatives": []
 }
 ```
 
-Если `allowed:false` — `purchase_id` нулевой UUID, `expires_at` нулевое время
-(`0001-01-01T00:00:00Z`), `reason` — одна из:
-- `"Нет права на покупку этого товара"` — права на этот товар вообще нет (не вставал в
-  очередь / не дошла очередь).
-- `"Право на покупку товара неактивно"` — право есть, но не `granted` (истекло/использовано/
-  отменено).
-
-`400 {"error":"Некорректные данные товара"}` — `:itemID` не UUID.
-
-#### `POST /api/v1/checkout/:itemID/pay` — оплатить
-
-Тот же эффект, что и `POST /catalog/:id/buy` (внутри дёргает тот же `PurchaseRight.Buy`,
-одна точка записи), просто как второй шаг после `GET /checkout/:itemID`.
-
-`200 {"success":"Покупка завершена"}`.
-`409 {"error":"<reason>"}` — `reason`: `"право на покупку недействительно, истекло или уже
-использовано"` либо `"товар полностью распродан"`.
-`400 {"error":"Некорректные данные товара"}` — `:itemID` не UUID.
-`500 {"error":"Внутренняя ошибка сервера"}` — непредвиденная ошибка.
-
-#### Статусы
-
-- `queue.status`: `waiting | granted | sold_out | cancelled | expired | purchased`
-  (`cancelled` зарезервирован под выход из очереди — ручки для этого пока нет).
-- `purchase_rights.status`: `granted | used | cancelled | expired`.
-
-#### Известные ограничения текущего контракта (важно для фронта)
-
-- **Нет ручки «мой статус в очереди + позиция»**. Позиция в очереди считается на уровне
-  `services.QueueService.GetStatus`/`GetPosition`, но не подключена к HTTP. Единственный
-  способ фронту узнать, есть ли granted-право — `GET /checkout/:itemID`; отличить `waiting`
-  от «никогда не вставал в очередь» или от `sold_out`/`expired` через API сейчас нельзя.
-- **Нет ручки выхода из очереди** (`cancelled`) — S-06, не реализовано.
-- **Нет SSE и ETA** — продвижение синхронное (по запросу), обновление статуса на фронте
-  только через поллинг.
-- `POST /api/v1/catalog/:id/queue` и `POST /api/v1/catalog/:id/buy` не возвращают текущий
-  статус/позицию в теле ответа — только `message`/`item_id`.
+* `server_time` обязателен: таймер на фронте считается как `expires_at − server_time` с
+  поправкой на часы браузера, а не по локальным часам.
+* `eta_seconds` всегда `null` — осознанно (см. CLAUDE.md §3).
+* `alternatives` (id похожих нераспроданных лотов) заполняется только для `sold_out` и `expired`.
+* Имена состояний совпадают на бэкенде и фронте буква в букву.
 
 ## Как запустить
 
 ```bash
-docker compose up -d          # postgres + автоприменение миграций (сервис migrator) + сборка/запуск app
+docker compose up -d --build   # postgres + migrator + app + frontend
 curl http://localhost:8080/health
 ```
 
-Локальный `go run ./cmd` без Docker сейчас не заработает — `configs/configuration.yaml` хардкодит
-`database.host: postgres` (имя сервиса в docker-сети), а `viper` не читает env-переменные из
-`docker-compose.yaml` (`DB_HOST` и т.п. туда не пробрасываются). Известное ограничение, не чинить
-между делом — если понадобится локальный запуск вне докера, нужно осознанно добавить
-`viper.AutomaticEnv()`/`BindEnv` и поправить конфиг.
-
-Миграции лежат в `/migrations`, применяются `goose`-контейнером при `docker compose up`
-(см. сервис `migrator` в `docker-compose.yaml`), не самим приложением при старте.
+Запуск бэкенда с хоста без Docker и запуск тестов — README «Быстрый старт» и «Тесты»
+(наружу Postgres проброшен на **5433**).
 
 ## Тесты и линтеры
 
 ```bash
-go build ./...
-go vet ./...
-golangci-lint run              # конфиг — .golangci.yaml (govet, staticcheck, unused, errcheck,
-                                # rowserrcheck, sqlclosecheck, noctx, ineffassign; форматтер — goimports)
+go build ./cmd/... ./internal/... && go vet ./internal/...
+TEST_DATABASE_DSN="postgres://postgres:postgres@localhost:5433/avito_queue?sslmode=disable" \
+  go test -race -count=1 ./internal/...
+golangci-lint run              # .golangci.yaml; forbidigo охраняет INV-4
+cd frontend && npm run lint && npm run typecheck && npm run test
 ```
 
-Frontend (`cd frontend`):
-
-```bash
-npm install
-npm run dev
-npm run test
-npm run lint
-```
+CI (`.github/workflows/lint.yml`): golangci-lint, бэкенд-тесты против Postgres из services
+с накаткой goose-миграций, фронтовые lint/typecheck/test.
 
 ## Конвенции
 
-- Все SQL-запросы — через pgx, без ORM.
-- Ошибки оборачиваются через `fmt.Errorf("...: %w", err)` на каждом слое; на границе repository → domain
-  ошибки `pgx.ErrNoRows` конвертируются в доменные сентинелы (`domain.ErrNoItemFound`,
-  `domain.ErrNoPurchaseRight`, ...), которые дальше проверяются через `errors.Is` в HTTP-хендлерах для
-  выбора статус-кода — не превращайте любую ошибку репозитория в 404/500 без разбора.
-- HTTP-хендлеры не должны напрямую обращаться к репозиториям — только через `internal/services`.
-- Доменные статусы (`PurchaseRightStatus`, `QueueStatus` и т.п.) — типизированные строковые константы,
-  не голые `string`.
-- `userID` в `gin.Context` кладётся мидлварью уже как `uuid.UUID` (не строка) — доставать через
-  `handlers.userIDFromContext(c)`, не парсить/приводить типы заново в каждом хендлере.
+* SQL — только через pgx, параметризованный, без ORM. Запросы живут в `repository` и больше нигде.
+* Ошибки оборачиваются `fmt.Errorf("...: %w", err)` на каждом слое; на границе repository →
+  domain `pgx.ErrNoRows` конвертируется в доменные сентинелы, которые дальше проверяются через
+  `errors.Is` в хендлерах. Не превращать любую ошибку репозитория в 404/500 без разбора.
+* Доменные статусы — типизированные строковые константы, не голые `string`.
+* `userID` кладётся мидлварью в `gin.Context` как `uuid.UUID`; доставать через
+  `handlers.userIDFromContext(c)`; `:id` товара — через `handlers.itemIDFromParam(c)`.
+* TypeScript: `any` запрещён. Состояние сервера — только через слой API-клиента; бизнес-логики
+  состояний на фронте нет, `message`/`next_step` приходят с бэкенда.
+* Миграции вперёд-совместимые; применённую миграцию не редактируем, добавляем новую
+  (исключение — сиды `00004` на этапе разработки, после правки нужен `docker compose down -v`).
+
+## Definition of Done
+
+1. `golangci-lint run` и `go test -race -count=1 ./internal/...` (с живой БД) зелёные.
+2. Есть тест на новую логику; для правок в очереди или правах — тест на конкурентность.
+3. Если изменился контракт — обновлены «HTTP API» здесь и в README.
+4. Нет мёртвого кода, закомментированных блоков и `TODO` без номера задачи.
+5. PR прочитал человек. Автомерж запрещён, финальная ответственность на команде.
+
+## Чего не делать
+
+* Не переписывать архитектуру: слои в порядке, правки локализуются в своём слое.
+* Не добавлять зависимости без обоснования в PR. Никаких брокеров, Redis, ORM, k8s.
+* Не создавать абстракции «на будущее»: интерфейс вводится, когда есть вторая реализация или
+  его требует тест.
+* Не расширять скоуп. Вне MVP: реальная оплата, регистрация, списание стоков.
+* Не писать код сразу: сначала план (режим планирования), ревью плана человеком, потом код.
