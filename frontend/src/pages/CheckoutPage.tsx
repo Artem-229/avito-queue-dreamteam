@@ -3,8 +3,9 @@ import { useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useItem } from '@/entities/item';
-import { useCheckout, useEntryByItem } from '@/entities/queue-entry';
+import { usePurchase, useQueueStatus } from '@/entities/queue-entry';
 import { formatPrice } from '@/shared/lib/formatPrice';
+import { getClockSkewMs } from '@/shared/lib/useCountdown';
 import {
   Button,
   Card,
@@ -19,12 +20,12 @@ export function CheckoutPage() {
   const itemId = useParams().itemId ?? '';
   const navigate = useNavigate();
 
-  const { data: entry, isLoading } = useEntryByItem(itemId);
+  const { data: entry, isLoading } = useQueueStatus(itemId);
   const { data: item } = useItem(itemId);
-  const checkoutMutation = useCheckout();
+  const purchaseMutation = usePurchase();
   const submitted = useRef(false);
 
-  const hasRight = entry?.status === 'GRANTED';
+  const hasRight = entry?.status === 'granted';
 
   useEffect(() => {
     if (isLoading || submitted.current) return;
@@ -48,9 +49,9 @@ export function CheckoutPage() {
 
   const handleConfirm = () => {
     submitted.current = true;
-    checkoutMutation.mutate(entry.entryId, {
-      onSuccess: (order) => {
-        navigate(`/success/${order.orderId}`, { replace: true });
+    purchaseMutation.mutate(itemId, {
+      onSuccess: () => {
+        navigate(`/success/${itemId}`, { replace: true });
       },
       onError: () => {
         submitted.current = false;
@@ -75,7 +76,9 @@ export function CheckoutPage() {
             <div className={styles.itemInfo}>
               <span className={styles.seller}>{item.sellerName}</span>
               <h1 className={styles.title}>{item.title}</h1>
-              <span className={styles.price}>{formatPrice(item.price)}</span>
+              <span className={styles.price}>
+                {formatPrice(item.priceKopecks)}
+              </span>
             </div>
           </div>
         )}
@@ -85,7 +88,8 @@ export function CheckoutPage() {
           {entry.expiresAt && (
             <CountdownTimer
               expiresAt={Date.parse(entry.expiresAt)}
-              totalSeconds={120}
+              totalSeconds={item?.holdTtlSeconds ?? 120}
+              skewMs={getClockSkewMs(entry.serverTime)}
               onExpire={() => {
                 showToast('Время на покупку истекло', 'red');
                 navigate(`/item/${itemId}`, { replace: true });
@@ -97,7 +101,7 @@ export function CheckoutPage() {
         <Button
           size="lg"
           fullWidth
-          loading={checkoutMutation.isPending}
+          loading={purchaseMutation.isPending}
           onClick={handleConfirm}
         >
           Подтвердить покупку

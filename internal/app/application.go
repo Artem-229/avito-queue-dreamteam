@@ -36,7 +36,7 @@ func New(ctx context.Context, conf *config.Config) (*App, error) {
 
 	svc := NewServices(ctx, repos, logger)
 
-	server := rest.NewServer(conf, svc.Catalog, svc.Queue, svc.PurchaseRight, svc.Checkout, logger)
+	server := rest.NewServer(conf, svc.Catalog, svc.Queue, svc.PurchaseRight, svc.Demo, svc.Stats, repos.Pool(), logger)
 
 	return &App{
 		repositories: repos,

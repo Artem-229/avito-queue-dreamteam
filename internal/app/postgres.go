@@ -1,27 +1,53 @@
 package app
 
 import (
-	"avito-queue/internal/infra/postgres/repository"
 	"context"
 	"fmt"
-
-	"avito-queue/internal/config"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"avito-queue/internal/config"
+	"avito-queue/internal/infra/postgres/repository"
 )
 
 type Repositories struct {
 	PurchaseRightRepo *repository.PurchaseRightRepository
 	QueueRepo         *repository.QueueRepository
 	CatalogRepository *repository.CatalogRepository
+	StatsRepo         *repository.StatsRepository
 	pool              *pgxpool.Pool
 }
 
-func NewRepositories(ctx context.Context, cfg *config.Database) (*Repositories, error) {
-	connstr := buildDSN(cfg)
+// Pool отдаёт пул для проверок живости (/health).
+func (r *Repositories) Pool() *pgxpool.Pool { return r.pool }
 
-	pool, err := pgxpool.New(ctx, connstr)
+// Дефолт pgxpool — max(4, NumCPU) соединений, и он не выбирался осознанно:
+// каждая транзакция под LockItem держит соединение всё время ожидания
+// блокировки, и при сотне конкурентных запросов (демо-симулятор) узким местом
+// становится не блокировка строки, а нехватка соединений в пуле.
+const (
+	maxConns          = 30
+	minConns          = 5
+	maxConnLifetime   = time.Hour
+	maxConnIdleTime   = 5 * time.Minute
+	connectionTimeout = 5 * time.Second
+)
+
+func NewRepositories(ctx context.Context, cfg *config.Database) (*Repositories, error) {
+	poolCfg, err := pgxpool.ParseConfig(buildDSN(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres dsn: %w", err)
+	}
+
+	poolCfg.MaxConns = maxConns
+	poolCfg.MinConns = minConns
+	poolCfg.MaxConnLifetime = maxConnLifetime
+	poolCfg.MaxConnIdleTime = maxConnIdleTime
+	poolCfg.ConnConfig.ConnectTimeout = connectionTimeout
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres pool: %w", err)
 	}
@@ -34,11 +60,13 @@ func NewRepositories(ctx context.Context, cfg *config.Database) (*Repositories, 
 	purchaseRightRepo := repository.NewPurchaseRightRepo(pool)
 	queueRepo := repository.NewQueueRepo(pool)
 	catalogRepository := repository.NewCatalogRepository(pool)
+	statsRepo := repository.NewStatsRepository(pool)
 
 	return &Repositories{
 		PurchaseRightRepo: purchaseRightRepo,
 		QueueRepo:         queueRepo,
 		CatalogRepository: catalogRepository,
+		StatsRepo:         statsRepo,
 		pool:              pool,
 	}, nil
 }

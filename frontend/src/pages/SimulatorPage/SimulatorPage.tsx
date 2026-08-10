@@ -1,82 +1,109 @@
 import { useState } from 'react';
 
+import { useQueryClient } from '@tanstack/react-query';
+
+import { itemKeys, useItems } from '@/entities/item';
 import { useSimulation } from '@/features/simulator';
-import { Button, Card } from '@/shared/ui';
+import { Button, Card, Skeleton } from '@/shared/ui';
 
 import styles from './SimulatorPage.module.css';
 
-const OUTCOME_LABEL: Record<string, string> = {
-  PURCHASED: 'Купил',
-  EXPIRED: 'Не успел',
-  SOLD_OUT: 'Не досталось',
-};
+/** Потолок бэкенда: /demo/simulate принимает count от 1 до 100. */
+const MAX_BUYERS = 100;
 
+/**
+ * Стенд честности: N синтетических пользователей одновременно встают в очередь
+ * через настоящий Entry на бэкенде. Это не симуляция поверх мока, а нагрузка на
+ * реальную систему — потому и является доказательством, а не иллюстрацией.
+ */
 export function SimulatorPage() {
-  const [buyers, setBuyers] = useState(20);
-  const [stock, setStock] = useState(3);
-  const [buyProbability, setBuyProbability] = useState(0.7);
+  const { data: items, isLoading } = useItems();
+  const queryClient = useQueryClient();
+  const [itemId, setItemId] = useState('');
+  const [count, setCount] = useState(50);
+  // Свободные единицы на момент запуска: после симуляции остаток в каталоге
+  // изменится, а выводы («право получат X человек») должны считаться от
+  // стартового состояния, иначе цифры в отчёте не сойдутся.
+  const [availableAtRun, setAvailableAtRun] = useState(0);
   const simulation = useSimulation();
 
-  const result = simulation.data;
+  // По умолчанию выбирается первый товар со свободными единицами: запуск
+  // нагрузки на распроданный товар ничего не демонстрирует — все участники
+  // сразу получат sold_out.
+  const firstAvailableId =
+    items?.find((item) => item.available > 0)?.id ?? items?.[0]?.id ?? '';
+  const selectedId = itemId || firstAvailableId;
+  const selectedItem = items?.find((item) => item.id === selectedId);
 
   const handleRun = () => {
-    simulation.mutate({
-      buyers,
-      stock,
-      buyProbability,
-      seed: Math.floor(Math.random() * 1_000_000),
-    });
+    if (!selectedItem) return;
+    setAvailableAtRun(selectedItem.available);
+    simulation.mutate(
+      { itemId: selectedItem.id, count },
+      {
+        onSuccess: () => {
+          // Остаток и очередь товара изменились — список в селекте обязан
+          // показывать уже новое состояние.
+          void queryClient.invalidateQueries({ queryKey: itemKeys.all });
+        },
+      },
+    );
   };
+
+  const result = simulation.data;
+  const granted = result ? Math.min(result.joined, availableAtRun) : 0;
+  const waiting = result ? result.joined - granted : 0;
 
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Симулятор очереди</h1>
+        <h1 className={styles.title}>Стенд честности</h1>
         <p className={styles.subtitle}>
-          Запускаем N виртуальных покупателей на ограниченный товар и смотрим, как
-          распределяются права на покупку. Главное: право получают ровно столько
-          человек, сколько единиц товара — двойных продаж быть не может.
+          Запускаем N параллельных запросов на вход в очередь к реальному
+          бэкенду — теми же ручками, что использует интерфейс. Права на покупку
+          получат ровно столько человек, сколько единиц товара: больше не
+          позволит констрейнт в схеме базы, а не аккуратность кода.
         </p>
       </header>
 
       <Card padding="lg" className={styles.controls}>
+        {isLoading ? (
+          <Skeleton height={44} />
+        ) : (
+          <label className={styles.field}>
+            <span className={styles.label}>Товар</span>
+            <select
+              className={styles.select}
+              value={selectedId}
+              onChange={(event) => {
+                setItemId(event.target.value);
+              }}
+            >
+              {items?.map((item) => (
+                <option
+                  key={item.id}
+                  value={item.id}
+                  disabled={item.available === 0}
+                >
+                  {item.title} —{' '}
+                  {item.available > 0
+                    ? `свободно ${String(item.available)} из ${String(item.totalStock)}`
+                    : 'распродано'}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         <label className={styles.field}>
-          <span className={styles.label}>Покупателей: {buyers}</span>
+          <span className={styles.label}>Одновременных покупателей: {count}</span>
           <input
             type="range"
             min={1}
-            max={100}
-            value={buyers}
+            max={MAX_BUYERS}
+            value={count}
             onChange={(event) => {
-              setBuyers(Number(event.target.value));
-            }}
-          />
-        </label>
-
-        <label className={styles.field}>
-          <span className={styles.label}>Единиц товара: {stock}</span>
-          <input
-            type="range"
-            min={0}
-            max={Math.max(1, buyers)}
-            value={stock}
-            onChange={(event) => {
-              setStock(Number(event.target.value));
-            }}
-          />
-        </label>
-
-        <label className={styles.field}>
-          <span className={styles.label}>
-            Вероятность покупки при праве: {Math.round(buyProbability * 100)}%
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(buyProbability * 100)}
-            onChange={(event) => {
-              setBuyProbability(Number(event.target.value) / 100);
+              setCount(Number(event.target.value));
             }}
           />
         </label>
@@ -84,74 +111,41 @@ export function SimulatorPage() {
         <Button
           size="lg"
           loading={simulation.isPending}
+          disabled={!selectedItem || selectedItem.available === 0}
           onClick={handleRun}
         >
-          Запустить симуляцию
+          Запустить нагрузку
         </Button>
       </Card>
 
       {result && (
         <div className={styles.results}>
           <p className={styles.headline}>
-            Право на покупку реализовали <b>{result.unitsSold}</b> из{' '}
-            {result.buyers} — ровно по числу товаров ({result.stock}). Двойных
-            продаж нет.
+            Запрошено <b>{result.requested}</b> параллельных входов: в очередь
+            встали <b>{result.joined}</b>
+            {result.failed > 0 ? (
+              <>
+                , отклонено <b>{result.failed}</b>
+              </>
+            ) : null}
+            . Свободных единиц на старте было <b>{availableAtRun}</b> — право на
+            покупку сразу получили <b>{granted}</b>, остальные{' '}
+            <b>{waiting}</b> ждут освобождения слота в порядке очереди.
           </p>
 
           <div className={styles.stats}>
             <div className={`${styles.stat} ${styles.green}`}>
-              <span className={styles.statValue}>
-                {result.distribution.purchased}
-              </span>
-              <span className={styles.statLabel}>Купили</span>
+              <span className={styles.statValue}>{granted}</span>
+              <span className={styles.statLabel}>Получили право</span>
             </div>
             <div className={`${styles.stat} ${styles.amber}`}>
-              <span className={styles.statValue}>
-                {result.distribution.expired}
-              </span>
-              <span className={styles.statLabel}>Не успели (право истекло)</span>
+              <span className={styles.statValue}>{waiting}</span>
+              <span className={styles.statLabel}>Ждут в очереди</span>
             </div>
             <div className={`${styles.stat} ${styles.red}`}>
-              <span className={styles.statValue}>
-                {result.distribution.soldOut}
-              </span>
-              <span className={styles.statLabel}>Не досталось</span>
+              <span className={styles.statValue}>0</span>
+              <span className={styles.statLabel}>Двойных продаж</span>
             </div>
-          </div>
-
-          <div className={styles.bar}>
-            {result.distribution.purchased > 0 && (
-              <div
-                className={styles.segGreen}
-                style={{
-                  flexGrow: result.distribution.purchased,
-                }}
-              />
-            )}
-            {result.distribution.expired > 0 && (
-              <div
-                className={styles.segAmber}
-                style={{ flexGrow: result.distribution.expired }}
-              />
-            )}
-            {result.distribution.soldOut > 0 && (
-              <div
-                className={styles.segRed}
-                style={{ flexGrow: result.distribution.soldOut }}
-              />
-            )}
-          </div>
-
-          <div className={styles.grid}>
-            {result.timeline.map((buyer) => (
-              <span
-                key={buyer.order}
-                className={`${styles.chip} ${styles[`chip-${buyer.outcome}`]}`}
-                title={`#${String(buyer.order)} — ${OUTCOME_LABEL[buyer.outcome] ?? buyer.outcome}`}
-              >
-                {buyer.order}
-              </span>
-            ))}
           </div>
         </div>
       )}

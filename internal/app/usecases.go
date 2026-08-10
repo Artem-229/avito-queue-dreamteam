@@ -10,19 +10,22 @@ type Services struct {
 	PurchaseRight *services.PurchaseRight
 	Catalog       *services.CatalogService
 	Queue         *services.QueueService
-	Checkout      *services.CheckoutService
+	Demo          *services.DemoService
+	Stats         *services.StatsService
 }
 
 func NewServices(_ context.Context, repositories *Repositories, logger *slog.Logger) *Services {
-	purchaseRightService := services.NewPurchaseRight(repositories.PurchaseRightRepo, repositories.QueueRepo, repositories.CatalogRepository)
 	catalogService := services.NewCatalogService(repositories.CatalogRepository)
 	queueService := services.NewQueueService(repositories.QueueRepo, repositories.PurchaseRightRepo, repositories.CatalogRepository, logger)
-	checkoutService := services.NewCheckoutService(repositories.PurchaseRightRepo, purchaseRightService)
+	purchaseRightService := services.NewPurchaseRight(repositories.PurchaseRightRepo, repositories.QueueRepo, repositories.CatalogRepository, queueService)
+	demoService := services.NewDemoService(repositories.QueueRepo, repositories.CatalogRepository, repositories.PurchaseRightRepo, queueService)
+	statsService := services.NewStatsService(repositories.StatsRepo)
 
 	return &Services{
 		PurchaseRight: purchaseRightService,
 		Catalog:       catalogService,
 		Queue:         queueService,
-		Checkout:      checkoutService,
+		Demo:          demoService,
+		Stats:         statsService,
 	}
 }

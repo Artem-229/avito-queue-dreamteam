@@ -1,32 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
-
-import {
-  checkout,
-  fetchEntry,
-  fetchEntryByItem,
-  fetchEta,
-  joinQueue,
-  leaveQueue,
-} from './api';
+import { fetchStatus, joinQueue, leaveQueue, purchase } from './api';
 import { isTerminalStatus, type QueueEntry } from './model/types';
 
 export const queueKeys = {
-  entry: (entryId: string) => ['queue-entry', entryId] as const,
-  byItem: (itemId: string) => ['queue-entry-by-item', itemId] as const,
+  status: (itemId: string) => ['queue-status', itemId] as const,
 };
 
-const POLL_INTERVAL_MS = 1500;
+/**
+ * Поллинг раз в секунду — осознанный выбор вместо SSE: этот же запрос служит
+ * триггером ленивого продвижения очереди на бэкенде, а дешёвая проверка
+ * NeedsReconcile не даёт частому опросу превратиться в горячую точку.
+ */
+const POLL_INTERVAL_MS = 1000;
 
-export function useEntry(entryId: string) {
+export function useQueueStatus(itemId: string, enabled = true) {
   return useQuery({
-    queryKey: queueKeys.entry(entryId),
-    queryFn: () => fetchEntry(entryId),
+    queryKey: queueKeys.status(itemId),
+    queryFn: () => fetchStatus(itemId),
+    enabled: enabled && itemId !== '',
     refetchInterval: (query) => {
       const data = query.state.data;
       if (data && isTerminalStatus(data.status)) return false;
@@ -35,87 +27,38 @@ export function useEntry(entryId: string) {
   });
 }
 
-export function useLiveEntry(entryId: string) {
+function useQueueMutation(
+  mutationFn: (itemId: string) => Promise<QueueEntry>,
+) {
   const queryClient = useQueryClient();
-  const [transport, setTransport] = useState<'sse' | 'polling'>('sse');
 
-  const query = useQuery({
-    queryKey: queueKeys.entry(entryId),
-    queryFn: () => fetchEntry(entryId),
-    refetchInterval: (currentQuery) => {
-      const data = currentQuery.state.data;
-      if (data && isTerminalStatus(data.status)) return false;
-      return transport === 'polling' ? POLL_INTERVAL_MS : false;
+  return useMutation({
+    mutationFn,
+    // Ответ — тот же конверт статуса, поэтому кладём его в кеш напрямую:
+    // второй запрос сразу после действия не нужен.
+    onSuccess: (entry) => {
+      queryClient.setQueryData(queueKeys.status(entry.itemId), entry);
     },
-  });
-
-  useEffect(() => {
-    if (transport !== 'sse') return;
-
-    const source = new EventSource(`/api/queue/${entryId}/events`);
-
-    source.onmessage = (event: MessageEvent<string>) => {
-      const entry = JSON.parse(event.data) as QueueEntry;
-      queryClient.setQueryData(queueKeys.entry(entryId), entry);
-      if (isTerminalStatus(entry.status)) source.close();
-    };
-
-    source.onerror = () => {
-      source.close();
-      setTransport('polling');
-    };
-
-    return () => {
-      source.close();
-    };
-  }, [entryId, transport, queryClient]);
-
-  return query;
-}
-
-export function useEntryByItem(itemId: string) {
-  return useQuery({
-    queryKey: queueKeys.byItem(itemId),
-    queryFn: () => fetchEntryByItem(itemId),
-  });
-}
-
-export function useEta(entryId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ['queue-eta', entryId],
-    queryFn: () => fetchEta(entryId),
-    enabled,
-    refetchInterval: enabled ? 4000 : false,
   });
 }
 
 export function useJoinQueue() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (itemId: string) => joinQueue(itemId),
-    onSuccess: (entry) => {
-      queryClient.setQueryData(queueKeys.entry(entry.entryId), entry);
-      void queryClient.invalidateQueries({
-        queryKey: queueKeys.byItem(entry.itemId),
-      });
-    },
-  });
+  return useQueueMutation(joinQueue);
 }
 
 export function useLeaveQueue() {
+  return useQueueMutation(leaveQueue);
+}
+
+export function usePurchase() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (entryId: string) => leaveQueue(entryId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['queue-entry'] });
+    mutationFn: (itemId: string) => purchase(itemId),
+    onSuccess: (_result, itemId) => {
+      void queryClient.invalidateQueries({
+        queryKey: queueKeys.status(itemId),
+      });
     },
-  });
-}
-
-export function useCheckout() {
-  return useMutation({
-    mutationFn: (entryId: string) => checkout(entryId),
   });
 }

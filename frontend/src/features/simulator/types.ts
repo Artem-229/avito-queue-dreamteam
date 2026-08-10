@@ -1,25 +1,19 @@
-export type SimOutcome = 'PURCHASED' | 'EXPIRED' | 'SOLD_OUT';
-
-export interface SimBuyer {
-  order: number;
-  outcome: SimOutcome;
-}
-
 export interface SimulationParams {
-  buyers: number;
-  stock: number;
-  buyProbability: number;
-  seed?: number;
+  /** Товар, на котором проводим нагрузку. */
+  itemId: string;
+  /** Сколько синтетических пользователей одновременно встают в очередь. */
+  count: number;
 }
 
+/**
+ * Результат реального прогона на бэкенде: N параллельных вызовов настоящего
+ * Entry. joined — сколько встали в очередь, failed — сколько получили доменную
+ * ошибку (например «уже в очереди»). Никаких выдуманных распределений: цифры
+ * приходят от системы, которую и надо проверить.
+ */
 export interface SimulationResult {
-  buyers: number;
-  stock: number;
-  unitsSold: number;
-  distribution: {
-    purchased: number;
-    expired: number;
-    soldOut: number;
-  };
-  timeline: SimBuyer[];
+  itemId: string;
+  requested: number;
+  joined: number;
+  failed: number;
 }

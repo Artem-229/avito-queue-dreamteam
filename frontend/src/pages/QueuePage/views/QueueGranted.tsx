@@ -3,7 +3,9 @@ import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
+import { useItem } from '@/entities/item';
 import { queueKeys, type QueueEntry } from '@/entities/queue-entry';
+import { getClockSkewMs } from '@/shared/lib/useCountdown';
 import { Button, CountdownTimer } from '@/shared/ui';
 
 import { QueueScreen } from '../QueueScreen';
@@ -12,25 +14,26 @@ interface QueueGrantedProps {
   entry: QueueEntry;
 }
 
-function computeTotalSeconds(entry: QueueEntry): number {
-  if (entry.grantedAt && entry.expiresAt) {
-    const diff = Date.parse(entry.expiresAt) - Date.parse(entry.grantedAt);
-    if (diff > 0) return Math.round(diff / 1000);
-  }
-  return 120;
-}
+const FALLBACK_TTL_SECONDS = 120;
 
 export function QueueGranted({ entry }: QueueGrantedProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { data: item } = useItem(entry.itemId);
 
-  const expiresAtMs = entry.expiresAt ? Date.parse(entry.expiresAt) : Date.now();
+  const expiresAtMs = entry.expiresAt
+    ? Date.parse(entry.expiresAt)
+    : Date.now();
+
+  // Таймер считается от времени сервера, а не от часов браузера: бэкенд
+  // присылает server_time тем же ответом, что и expires_at.
+  const skewMs = getClockSkewMs(entry.serverTime);
 
   const handleExpire = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: queueKeys.entry(entry.entryId),
+      queryKey: queueKeys.status(entry.itemId),
     });
-  }, [queryClient, entry.entryId]);
+  }, [queryClient, entry.itemId]);
 
   return (
     <QueueScreen
@@ -39,7 +42,7 @@ export function QueueGranted({ entry }: QueueGrantedProps) {
       statusLabel="Право на покупку — ваше"
       pulse
       title="Оформите покупку вовремя"
-      description="Право персональное и действует ограниченное время. Успейте перейти к оплате, пока идёт таймер — иначе оно перейдёт следующему."
+      description={entry.message}
       footer={
         <Button
           size="lg"
@@ -47,14 +50,15 @@ export function QueueGranted({ entry }: QueueGrantedProps) {
             navigate(`/checkout/${entry.itemId}`);
           }}
         >
-          Перейти к оплате
+          {entry.nextStep.label}
         </Button>
       }
     >
       <CountdownTimer
         expiresAt={expiresAtMs}
-        totalSeconds={computeTotalSeconds(entry)}
+        totalSeconds={item?.holdTtlSeconds ?? FALLBACK_TTL_SECONDS}
         onExpire={handleExpire}
+        skewMs={skewMs}
       />
     </QueueScreen>
   );

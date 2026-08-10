@@ -1,27 +1,18 @@
 export {
   type QueueStatus,
   type QueueEntry,
-  type Order,
-  type EtaResult,
+  type NextStep,
+  type NextStepKind,
   isActiveRight,
+  isInQueue,
   isTerminalStatus,
 } from './model/types';
-export {
-  joinQueue,
-  fetchEntryByItem,
-  fetchEntry,
-  leaveQueue,
-  checkout,
-  fetchEta,
-  subscribeToEntry,
-} from './api';
+export { type QueueStatusDto, toQueueEntry } from './dto';
+export { joinQueue, fetchStatus, leaveQueue, purchase } from './api';
 export {
   queueKeys,
-  useEntry,
-  useLiveEntry,
-  useEntryByItem,
-  useEta,
+  useQueueStatus,
   useJoinQueue,
   useLeaveQueue,
-  useCheckout,
+  usePurchase,
 } from './queries';

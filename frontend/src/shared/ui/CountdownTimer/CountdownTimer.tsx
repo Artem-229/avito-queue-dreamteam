@@ -7,6 +7,8 @@ interface CountdownTimerProps {
   expiresAt: number;
   totalSeconds: number;
   onExpire?: () => void;
+  /** Сдвиг часов браузера относительно сервера, см. getClockSkewMs. */
+  skewMs?: number;
 }
 
 const RADIUS = 52;
@@ -22,8 +24,9 @@ export function CountdownTimer({
   expiresAt,
   totalSeconds,
   onExpire,
+  skewMs = 0,
 }: CountdownTimerProps) {
-  const { secondsLeft } = useCountdown(expiresAt, onExpire);
+  const { secondsLeft } = useCountdown(expiresAt, onExpire, skewMs);
   const tone = toneFor(secondsLeft);
   const ratio = totalSeconds > 0 ? secondsLeft / totalSeconds : 0;
   const dashOffset = CIRCUMFERENCE * (1 - Math.min(1, Math.max(0, ratio)));

@@ -7,33 +7,39 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"avito-queue/internal/infra/http/rest/middlewares"
+	"avito-queue/internal/infra/http/rest/session"
 )
 
 type DemoLoginRequest struct {
 	DisplayName string `json:"display_name" binding:"required"`
 }
 
-func (h *Handlers) DemoLogin(secret string) gin.HandlerFunc {
+// DemoLogin выдаёт личность тестовому пользователю: настоящей регистрации в
+// MVP нет, но право на покупку обязано к кому-то крепиться.
+//
+// user_id генерируется случайно, а не выводится из display_name — иначе вход
+// под чужим именем забирал бы чужую позицию в очереди. Имя нигде не хранится,
+// это только подпись под аватаркой.
+//
+// Токен отдаётся кукой и в теле ответа
+func (h *Handlers) DemoLogin(secret string, secureCookie bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req DemoLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "некорректное тело запроса"})
+			respondErrorCode(c, http.StatusBadRequest, CodeInvalidBody, "Укажите имя тестового пользователя")
 			return
 		}
 
-		userID := uuid.New().String()
+		userID := uuid.New()
+		token := session.Issue(userID, secret, time.Now())
 
-		signature := middlewares.Sign(userID, secret)
-
-		cookieValue := userID + "." + signature
-
-		c.SetCookie("session", cookieValue, int(24*time.Hour/time.Second), "/", "", false, true)
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(session.CookieName, token, int(session.TTL.Seconds()), "/", "", secureCookie, true)
 
 		c.JSON(http.StatusOK, gin.H{
 			"user_id":      userID,
 			"display_name": req.DisplayName,
-			"message":      "Успешный вход",
+			"token":        token,
 		})
 	}
 }

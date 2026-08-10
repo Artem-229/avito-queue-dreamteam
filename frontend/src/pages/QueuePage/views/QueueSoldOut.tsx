@@ -21,7 +21,7 @@ export function QueueSoldOut({ entry }: QueueSoldOutProps) {
     item?.title,
     (similar ?? []).map((candidate) => ({
       title: candidate.title,
-      price: candidate.price,
+      price: candidate.priceKopecks / 100,
     })),
   );
 
