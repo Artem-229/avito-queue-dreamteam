@@ -1,12 +1,26 @@
 package rest
 
 import (
-	"avito-queue/internal/config"
-	"avito-queue/internal/infra/http/rest/handlers"
 	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
+
+	"avito-queue/internal/config"
+	"avito-queue/internal/infra/http/rest/handlers"
+)
+
+// Таймауты входящих соединений. Без них клиент, открывший соединение и не
+// дославший запрос, держит горутину и файловый дескриптор бесконечно: это и
+// slowloris, и куда более частый случай — телефон, потерявший сеть посреди
+// запроса, или прокси, оборвавший TCP без FIN. Сервис от этого не падает, он
+// тихо перестаёт принимать новые соединения.
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 15 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = 60 * time.Second
 )
 
 type Server struct {
@@ -18,22 +32,29 @@ func NewServer(
 	catalogService handlers.CatalogService,
 	queueService handlers.QueueService,
 	purchaseRightService handlers.PurchaseRightService,
-	checkoutService handlers.CheckAccessor,
+	demoService handlers.DemoService,
+	statsService handlers.StatsService,
+	db handlers.Pinger,
 	logger *slog.Logger,
 ) *Server {
-	catalogHandler := handlers.NewCatalogHandler(catalogService, purchaseRightService)
-	queueHandler := handlers.NewQueueHandler(queueService)
-	checkoutHandler := handlers.NewCheckoutHandler(checkoutService)
+	h := handlers.New(
+		handlers.NewCatalogHandler(catalogService),
+		handlers.NewQueueHandler(queueService, purchaseRightService),
+		handlers.NewDemoHandler(demoService),
+		handlers.NewStatsHandler(statsService),
+		db,
+	)
 
-	h := handlers.New(catalogHandler, queueHandler, checkoutHandler)
+	router := NewRouter(h, conf, logger)
 
-	router := NewRouter(h, logger, conf.Auth.SessionSecret)
-
-	addr := fmt.Sprintf("%s:%d", conf.HTTPServer.Host, conf.HTTPServer.Port)
 	return &Server{
 		server: &http.Server{
-			Addr:    addr,
-			Handler: router,
+			Addr:              fmt.Sprintf("%s:%d", conf.HTTPServer.Host, conf.HTTPServer.Port),
+			Handler:           router,
+			ReadHeaderTimeout: readHeaderTimeout,
+			ReadTimeout:       readTimeout,
+			WriteTimeout:      writeTimeout,
+			IdleTimeout:       idleTimeout,
 		},
 	}
 }

@@ -1,12 +1,13 @@
 package handlers
 
 import (
-	"avito-queue/internal/domain"
 	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"avito-queue/internal/domain"
 )
 
 type CatalogService interface {
@@ -15,48 +16,39 @@ type CatalogService interface {
 	GetSimilarItems(ctx context.Context, id uuid.UUID) ([]domain.CatalogItem, error)
 }
 
-type PurchaseRightService interface {
-	Buy(ctx context.Context, userID, itemID uuid.UUID) error
-}
-
 type CatalogHandler struct {
-	catalogService       CatalogService
-	purchaseRightService PurchaseRightService
+	catalogService CatalogService
 }
 
-func NewCatalogHandler(s CatalogService, p PurchaseRightService) *CatalogHandler {
+func NewCatalogHandler(s CatalogService) *CatalogHandler {
 	return &CatalogHandler{
-		catalogService:       s,
-		purchaseRightService: p,
+		catalogService: s,
 	}
 }
 
 func (h *CatalogHandler) GetList(c *gin.Context) {
 	items, err := h.catalogService.GetCatalog(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch catalog"})
+		respondErrorCode(c, http.StatusInternalServerError, CodeCatalogFailure, "Не удалось загрузить каталог")
 		return
 	}
 
 	if items == nil {
 		items = []domain.CatalogItem{}
 	}
+
 	c.JSON(http.StatusOK, items)
 }
 
 func (h *CatalogHandler) GetByID(c *gin.Context) {
-	rawID := c.Param("id")
-
-	id, err := uuid.Parse(rawID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse id"})
+	itemID, ok := itemIDFromParam(c)
+	if !ok {
 		return
 	}
 
-	item, err := h.catalogService.GetCatalogItem(c.Request.Context(), id)
+	item, err := h.catalogService.GetCatalogItem(c.Request.Context(), itemID)
 	if err != nil {
-		statusCode, errResp := mapErrorIntoStatusCodes(err)
-		c.JSON(statusCode, errResp)
+		respondError(c, err)
 		return
 	}
 
@@ -64,16 +56,14 @@ func (h *CatalogHandler) GetByID(c *gin.Context) {
 }
 
 func (h *CatalogHandler) GetSimilarItems(c *gin.Context) {
-	itemID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse id"})
+	itemID, ok := itemIDFromParam(c)
+	if !ok {
 		return
 	}
 
 	items, err := h.catalogService.GetSimilarItems(c.Request.Context(), itemID)
 	if err != nil {
-		statusCode, errResp := mapErrorIntoStatusCodes(err)
-		c.JSON(statusCode, errResp)
+		respondError(c, err)
 		return
 	}
 
