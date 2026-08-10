@@ -11,11 +11,21 @@ linters:
     - sqlclosecheck
     - noctx
     - ineffassign
+    - forbidigo
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: '\.pool\.(Exec|Query|QueryRow)'
+          msg: 'D-01/INV-4: используйте db(ctx, r.pool) — прямой доступ к пулу игнорирует транзакцию'
+      exclude-godoc-examples: false
   exclusions:
     rules:
       - path: _test\.go
         linters:
           - errcheck
+      - path: internal/infra/postgres/repository/db\.go
+        linters:
+          - forbidigo
 
 
 formatters:
