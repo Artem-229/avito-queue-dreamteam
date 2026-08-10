@@ -1,0 +1,15 @@
+# Go
+main.exe
+server
+*.test
+*.out
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/
+*.tsbuildinfo
+
+# Локальные секреты и переменные окружения
+.env
+.env.local
+
