@@ -47,7 +47,16 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: avito_queue
-      CONFIG_PATH: "configs/configuration.yaml"
+      # Секрет подписи сессии. Приложение не стартует, если он не задан или
+      # короче 32 байт. Для локального запуска значение по умолчанию ниже
+      # годится; на публичном стенде задаётся своё через .env.
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:-local-development-session-secret-change-me}
+      # На локальном http кука Secure не сохранится браузером, на HTTPS-стенде
+      # переменную нужно выставить в true.
+      AUTH_SECURE_COOKIE: ${AUTH_SECURE_COOKIE:-false}
+      # Демо-ручки (expire-now, simulate) нужны для показа, поэтому в compose
+      # включены. По умолчанию в конфиге они выключены.
+      DEMO_ENABLED: ${DEMO_ENABLED:-true}
     volumes:
       - ./configs:/app/configs
     depends_on:
@@ -65,7 +74,7 @@ services:
     ports:
       - "3000:80" 
     depends_on:
-      - app 
+      - app
 
 volumes:
   postgres_data:

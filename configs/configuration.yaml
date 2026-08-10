@@ -7,7 +7,15 @@ http_server:
   port: 8080
 
 auth:
-  session_secret: "super-secret-key-for-avito-queue"
+  # session_secret задаётся ТОЛЬКО через AUTH_SESSION_SECRET, здесь его нет
+  # намеренно: закоммиченный секрет подписи известен всем, кто открыл репозиторий.
+  # Приложение не стартует, если переменная не задана или короче 32 байт.
+  secure_cookie: false
+
+demo:
+  # Демо-ручки (/demo/expire-now, /demo/simulate) выключены по умолчанию,
+  # включаются переменной DEMO_ENABLED на стенде.
+  enabled: true
 
 database:
   host: postgres
