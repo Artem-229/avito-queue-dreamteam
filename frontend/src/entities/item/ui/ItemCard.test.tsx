@@ -8,10 +8,13 @@ import { ItemCard } from './ItemCard';
 const item: Item = {
   id: 'sneakers-limited',
   title: 'Кроссовки Limited',
-  price: 24990,
+  priceKopecks: 2499000,
+  holdTtlSeconds: 90,
   category: 'Обувь',
   sellerName: 'SneakerHub',
-  stock: 5,
+  totalStock: 5,
+  available: 5,
+  soldOut: false,
   queueEnabled: true,
   emoji: '👟',
   accent: '#965EEB',
@@ -45,5 +48,14 @@ describe('ItemCard', () => {
   it('скрывает бейдж очереди для обычного товара', () => {
     renderCard({ queueEnabled: false });
     expect(screen.queryByText('Ограниченный выпуск')).not.toBeInTheDocument();
+  });
+
+  it('различает выкупленный товар и временно занятые слоты', () => {
+    const { unmount } = renderCard({ available: 0, soldOut: true });
+    expect(screen.getByText('распродано')).toBeInTheDocument();
+    unmount();
+
+    renderCard({ available: 0, soldOut: false });
+    expect(screen.getByText('сейчас разобран')).toBeInTheDocument();
   });
 });

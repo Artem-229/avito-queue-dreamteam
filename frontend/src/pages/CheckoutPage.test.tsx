@@ -5,15 +5,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { CheckoutPage } from './CheckoutPage';
 
 const mocks = vi.hoisted<{ entryStatus: string }>(() => ({
-  entryStatus: 'QUEUED',
+  entryStatus: 'waiting',
 }));
 
 vi.mock('@/entities/queue-entry', () => ({
-  useEntryByItem: () => ({
-    data: { status: mocks.entryStatus, entryId: 'e1', itemId: 'i1' },
+  useQueueStatus: () => ({
+    data: {
+      itemId: 'i1',
+      status: mocks.entryStatus,
+      message: '',
+      nextStep: { kind: 'pay', label: '' },
+      position: 0,
+      queueSize: 0,
+      expiresAt: null,
+      etaSeconds: null,
+      serverTime: '2026-08-10T00:00:00Z',
+      alternatives: [],
+    },
     isLoading: false,
   }),
-  useCheckout: () => ({ mutate: vi.fn(), isPending: false }),
+  usePurchase: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/entities/item', () => ({
@@ -33,9 +44,16 @@ function renderAt() {
 
 describe('CheckoutPage guard', () => {
   it('редиректит на страницу товара без активного права на покупку', async () => {
-    mocks.entryStatus = 'QUEUED';
+    mocks.entryStatus = 'waiting';
     renderAt();
 
     expect(await screen.findByText('ITEM PAGE')).toBeInTheDocument();
+  });
+
+  it('пускает на оформление, когда право выдано', () => {
+    mocks.entryStatus = 'granted';
+    renderAt();
+
+    expect(screen.queryByText('ITEM PAGE')).not.toBeInTheDocument();
   });
 });

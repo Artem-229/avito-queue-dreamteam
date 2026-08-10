@@ -22,9 +22,13 @@ describe('formatEta', () => {
 });
 
 describe('formatPrice', () => {
-  it('добавляет символ рубля', () => {
-    const result = formatPrice(24990);
+  it('переводит копейки в рубли и добавляет символ валюты', () => {
+    const result = formatPrice(2_499_000);
     expect(result).toContain('₽');
     expect(result).toMatch(/24/);
+  });
+
+  it('не теряет рубли на копейках', () => {
+    expect(formatPrice(25_000)).toMatch(/250/);
   });
 });

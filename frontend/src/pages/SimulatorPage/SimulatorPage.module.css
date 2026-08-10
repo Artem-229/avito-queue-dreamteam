@@ -45,6 +45,31 @@
   accent-color: var(--color-purple);
 }
 
+/* Нативный select не наследует тему: без явных цветов выпадающий список в
+   тёмной теме рисуется белым текстом на белом фоне. */
+.select {
+  padding: var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--color-purple);
+  outline-offset: 1px;
+}
+
+.select option {
+  color: var(--color-text);
+  background-color: var(--color-surface);
+}
+
+.select option:disabled {
+  color: var(--color-text-muted);
+}
+
 .results {
   display: flex;
   flex-direction: column;

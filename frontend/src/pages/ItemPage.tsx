@@ -1,11 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useItem } from '@/entities/item';
-import {
-  isTerminalStatus,
-  useEntryByItem,
-  useJoinQueue,
-} from '@/entities/queue-entry';
+import { isInQueue, useJoinQueue, useQueueStatus } from '@/entities/queue-entry';
 import { formatPrice } from '@/shared/lib/formatPrice';
 import { Badge, Button, Card, Skeleton } from '@/shared/ui';
 
@@ -16,7 +12,7 @@ export function ItemPage() {
   const navigate = useNavigate();
 
   const { data: item, isLoading, isError } = useItem(itemId);
-  const { data: existingEntry } = useEntryByItem(itemId);
+  const { data: entry } = useQueueStatus(itemId);
   const join = useJoinQueue();
 
   if (isError) {
@@ -36,15 +32,12 @@ export function ItemPage() {
     );
   }
 
-  const activeEntry =
-    existingEntry && !isTerminalStatus(existingEntry.status)
-      ? existingEntry
-      : null;
+  const alreadyInQueue = entry ? isInQueue(entry.status) : false;
 
   const handleJoin = () => {
     join.mutate(itemId, {
-      onSuccess: (entry) => {
-        navigate(`/queue/${entry.entryId}`);
+      onSuccess: () => {
+        navigate(`/queue/${itemId}`);
       },
     });
   };
@@ -69,11 +62,13 @@ export function ItemPage() {
             <Badge tone="green">Обычная покупка</Badge>
           )}
           <Badge>
-            {item.stock > 0 ? `В наличии: ${String(item.stock)}` : 'Распродано'}
+            {item.soldOut
+              ? 'Распродано'
+              : `Свободно: ${String(item.available)} из ${String(item.totalStock)}`}
           </Badge>
         </div>
 
-        <span className={styles.price}>{formatPrice(item.price)}</span>
+        <span className={styles.price}>{formatPrice(item.priceKopecks)}</span>
 
         {item.queueEnabled ? (
           <div className={styles.actions}>
@@ -81,12 +76,12 @@ export function ItemPage() {
               Этот товар продаётся через очередь. Вы встанете в очередь и
               получите ограниченное по времени право на покупку.
             </p>
-            {activeEntry ? (
+            {alreadyInQueue ? (
               <Button
                 size="lg"
                 fullWidth
                 onClick={() => {
-                  navigate(`/queue/${activeEntry.entryId}`);
+                  navigate(`/queue/${itemId}`);
                 }}
               >
                 Вернуться в очередь
@@ -96,10 +91,13 @@ export function ItemPage() {
                 size="lg"
                 fullWidth
                 loading={join.isPending}
-                disabled={item.stock <= 0}
+                // Отсутствие свободных слотов очередь не отменяет — она ровно
+                // для этого и нужна: удержанное право может сгореть, и слот
+                // уйдёт следующему. Кнопка гаснет, только когда товар выкуплен.
+                disabled={item.soldOut}
                 onClick={handleJoin}
               >
-                {item.stock > 0 ? 'Встать в очередь' : 'Товара нет в наличии'}
+                {item.soldOut ? 'Товар распродан' : 'Встать в очередь'}
               </Button>
             )}
           </div>

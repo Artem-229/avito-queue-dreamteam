@@ -1,68 +1,36 @@
-import { ApiError, apiRequest } from '@/shared/api';
+import { apiRequest } from '@/shared/api';
 
-import {
-  type EtaResult,
-  type Order,
-  type QueueEntry,
-} from './model/types';
+import { toQueueEntry, type QueueStatusDto } from './dto';
+import { type QueueEntry } from './model/types';
 
-export function joinQueue(itemId: string): Promise<QueueEntry> {
-  return apiRequest<QueueEntry>('/api/queue/join', {
+/**
+ * Все операции очереди адресуются товаром, а не записью очереди: агрегат на
+ * бэкенде — товар, запись очереди отдельной сущностью не адресуется.
+ */
+const base = (itemId: string) =>
+  `/api/v1/catalog/${encodeURIComponent(itemId)}`;
+
+export async function joinQueue(itemId: string): Promise<QueueEntry> {
+  const dto = await apiRequest<QueueStatusDto>(`${base(itemId)}/queue`, {
     method: 'POST',
-    body: JSON.stringify({ itemId }),
   });
+  return toQueueEntry(dto, itemId);
 }
 
-export async function fetchEntryByItem(
-  itemId: string,
-): Promise<QueueEntry | null> {
-  try {
-    return await apiRequest<QueueEntry>(
-      `/api/queue/entry?itemId=${encodeURIComponent(itemId)}`,
-    );
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      return null;
-    }
-    throw error;
-  }
+/** Статус и позиция. Внутри бэкенд сам продвигает очередь (EnsureAdvanced). */
+export async function fetchStatus(itemId: string): Promise<QueueEntry> {
+  const dto = await apiRequest<QueueStatusDto>(`${base(itemId)}/queue/me`);
+  return toQueueEntry(dto, itemId);
 }
 
-export function fetchEntry(entryId: string): Promise<QueueEntry> {
-  return apiRequest<QueueEntry>(`/api/queue/${entryId}`);
-}
-
-export function leaveQueue(entryId: string): Promise<void> {
-  return apiRequest<void>(`/api/queue/${entryId}/leave`, { method: 'POST' });
-}
-
-export function checkout(entryId: string): Promise<Order> {
-  return apiRequest<Order>('/api/checkout', {
-    method: 'POST',
-    body: JSON.stringify({ entryId }),
+export async function leaveQueue(itemId: string): Promise<QueueEntry> {
+  const dto = await apiRequest<QueueStatusDto>(`${base(itemId)}/queue/me`, {
+    method: 'DELETE',
   });
+  return toQueueEntry(dto, itemId);
 }
 
-export function fetchEta(entryId: string): Promise<EtaResult> {
-  return apiRequest<EtaResult>(`/api/queue/${entryId}/eta`);
-}
-
-export function subscribeToEntry(
-  entryId: string,
-  onMessage: (entry: QueueEntry) => void,
-  onError?: () => void,
-): () => void {
-  const source = new EventSource(`/api/queue/${entryId}/events`);
-
-  source.onmessage = (event: MessageEvent<string>) => {
-    onMessage(JSON.parse(event.data) as QueueEntry);
-  };
-
-  source.onerror = () => {
-    onError?.();
-  };
-
-  return () => {
-    source.close();
-  };
+/** Использовать право на покупку — единственный путь покупки. */
+export async function purchase(itemId: string): Promise<void> {
+  await apiRequest<void>(`${base(itemId)}/purchase`, { method: 'POST' });
 }

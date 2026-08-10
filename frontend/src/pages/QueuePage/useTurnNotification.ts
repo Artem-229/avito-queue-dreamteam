@@ -8,7 +8,7 @@ export function useTurnNotification(status: QueueStatus | undefined): void {
 
   useEffect(() => {
     if (
-      status === 'QUEUED' &&
+      status === 'waiting' &&
       typeof Notification !== 'undefined' &&
       Notification.permission === 'default'
     ) {
@@ -16,9 +16,9 @@ export function useTurnNotification(status: QueueStatus | undefined): void {
     }
 
     if (
-      status === 'GRANTED' &&
+      status === 'granted' &&
       previous.current !== undefined &&
-      previous.current !== 'GRANTED'
+      previous.current !== 'granted'
     ) {
       showToast('Ваша очередь подошла — у вас есть право на покупку!', 'green');
 

@@ -2,12 +2,7 @@ import { useRef, useState } from 'react';
 
 import { useNavigate } from 'react-router-dom';
 
-import {
-  type QueueEntry,
-  useEta,
-  useLeaveQueue,
-} from '@/entities/queue-entry';
-import { formatEta } from '@/shared/lib/formatTime';
+import { type QueueEntry, useLeaveQueue } from '@/entities/queue-entry';
 import { Button, Modal, ProgressBar } from '@/shared/ui';
 
 import { QueueScreen } from '../QueueScreen';
@@ -20,26 +15,23 @@ interface QueueWaitingProps {
 export function QueueWaiting({ entry }: QueueWaitingProps) {
   const navigate = useNavigate();
   const leave = useLeaveQueue();
-  const eta = useEta(entry.entryId, true);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const confidenceLabel: Record<string, string> = {
-    high: 'высокая',
-    medium: 'средняя',
-    low: 'низкая',
-  };
+  // position — место в очереди начиная с 1, значит перед пользователем
+  // стоит на одного человека меньше.
+  const ahead = Math.max(0, entry.position - 1);
 
-  const initialAhead = useRef(entry.totalAhead);
-  if (entry.totalAhead > initialAhead.current) {
-    initialAhead.current = entry.totalAhead;
+  const initialAhead = useRef(ahead);
+  if (ahead > initialAhead.current) {
+    initialAhead.current = ahead;
   }
 
-  const done = initialAhead.current - entry.totalAhead;
+  const done = initialAhead.current - ahead;
   const progress =
     initialAhead.current > 0 ? (done / initialAhead.current) * 100 : 100;
 
   const handleLeave = () => {
-    leave.mutate(entry.entryId, {
+    leave.mutate(entry.itemId, {
       onSuccess: () => {
         navigate(`/item/${entry.itemId}`);
       },
@@ -53,11 +45,11 @@ export function QueueWaiting({ entry }: QueueWaitingProps) {
       statusLabel="Вы в очереди"
       pulse
       title={
-        entry.totalAhead > 0
-          ? `Перед вами ${String(entry.totalAhead)} чел.`
+        ahead > 0
+          ? `Перед вами ${String(ahead)} чел.`
           : 'Вы следующий в очереди'
       }
-      description="Не закрывайте страницу надолго: когда подойдёт очередь, вы получите право на покупку с ограниченным временем."
+      description={entry.message}
       footer={
         <Button
           variant="ghost"
@@ -73,12 +65,10 @@ export function QueueWaiting({ entry }: QueueWaitingProps) {
         <ProgressBar value={progress} tone="queue" />
       </div>
 
-      {eta.data && (
-        <span className={styles.eta}>
-          Прогноз ИИ: {formatEta(eta.data.seconds)} ожидания · точность{' '}
-          {confidenceLabel[eta.data.confidence] ?? eta.data.confidence}
-        </span>
-      )}
+      <span className={styles.eta}>
+        Всего в очереди: {String(entry.queueSize)} чел. · ваше место{' '}
+        {String(entry.position)}
+      </span>
 
       <Modal
         open={confirmOpen}
