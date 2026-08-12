@@ -25,7 +25,9 @@ func NewServices(_ context.Context, repositories *Repositories, logger *slog.Log
 	}
 	gigaClient := gigachat.NewClient(gigaCfg)
 
-	catalogService := services.NewCatalogService(repositories.CatalogRepository, gigaClient)
+	cachedGigaClient := gigachat.NewCachedEmbedder(gigaClient, "/app/configs/embeddings_cache.json")
+
+	catalogService := services.NewCatalogService(repositories.CatalogRepository, cachedGigaClient)
 
 	queueService := services.NewQueueService(repositories.QueueRepo, repositories.PurchaseRightRepo, repositories.CatalogRepository, logger)
 	purchaseRightService := services.NewPurchaseRight(repositories.PurchaseRightRepo, repositories.QueueRepo, repositories.CatalogRepository, queueService)

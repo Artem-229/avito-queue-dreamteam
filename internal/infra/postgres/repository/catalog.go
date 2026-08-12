@@ -102,24 +102,18 @@ func (r *CatalogRepository) SaveEmbedding(ctx context.Context, id uuid.UUID, emb
 	return nil
 }
 
-// GetSimilarItems — лоты той же категории, у которых ещё остались невыкупленные
-// единицы: предлагать распроданный товар взамен распроданного бессмысленно.
-// Удержанные права (granted_count) в фильтр не входят — они могут сгореть,
-// и слот вернётся.
 func (r *CatalogRepository) GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error) {
-	// Ищем по косинусному расстоянию (embedding <=> $3)
 	query := `
 		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
 		FROM catalog_items
-		WHERE category = $1 
-		  AND id != $2 
+		WHERE id != $1 
 		  AND deleted_at IS NULL
 		  AND used_count < total_stock
 		  AND embedding IS NOT NULL
-		ORDER BY embedding <=> $3
-		LIMIT 20`
+		ORDER BY embedding <=> $2
+		LIMIT 5`
 
-	rows, err := db(ctx, r.pool).Query(ctx, query, item.Category, item.ID, pgvector.NewVector(item.Embedding))
+	rows, err := db(ctx, r.pool).Query(ctx, query, item.ID, pgvector.NewVector(item.Embedding))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get similar items via vector: %w", err)
 	}
@@ -141,6 +135,36 @@ func (r *CatalogRepository) GetSimilarItems(ctx context.Context, item domain.Cat
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows error in similar catalog items: %w", err)
+	}
+
+	return items, nil
+}
+
+func (r *CatalogRepository) GetItemsWithoutEmbeddings(ctx context.Context) ([]domain.CatalogItem, error) {
+	query := `
+		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
+		FROM catalog_items
+		WHERE deleted_at IS NULL AND embedding IS NULL
+	`
+
+	rows, err := db(ctx, r.pool).Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query items without embeddings: %w", err)
+	}
+	defer rows.Close()
+
+	var items []domain.CatalogItem
+	for rows.Next() {
+		var item domain.CatalogItem
+		err := rows.Scan(
+			&item.ID, &item.Name, &item.PriceKopecks, &item.TotalStock,
+			&item.HoldTTLSeconds, &item.GrantedCount, &item.UsedCount,
+			&item.Category, &item.SellerName, &item.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan item: %w", err)
+		}
+		items = append(items, item)
 	}
 
 	return items, nil

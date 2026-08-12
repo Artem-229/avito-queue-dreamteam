@@ -13,3 +13,6 @@ server
 .env
 .env.local
 
+# артефакты
+cookies.txt
+/configs/embeddings_cache.json
