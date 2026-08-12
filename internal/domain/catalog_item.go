@@ -18,4 +18,6 @@ type CatalogItem struct {
 	SellerName     string     `json:"seller_name"`
 	CreatedAt      time.Time  `json:"created_at"`
 	DeletedAt      *time.Time `json:"-"`
+
+	Embedding []float32 `json:"-"`
 }
