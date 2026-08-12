@@ -40,10 +40,10 @@ func NewRouter(h *handlers.Handlers, conf *config.Config, logger *slog.Logger) *
 
 		api.GET("/stats", h.Stats.GetStats)
 
-		api.POST("/catalog/:id/queue", h.Queue.Join)
-		api.GET("/catalog/:id/queue/me", h.Queue.GetStatus)
-		api.DELETE("/catalog/:id/queue/me", h.Queue.Leave)
-		api.POST("/catalog/:id/purchase", h.Queue.Purchase)
+		api.POST("/catalog/:id/queue", h.QueueEntry.Join)
+		api.GET("/catalog/:id/queue/me", h.QueueEntry.GetStatus)
+		api.DELETE("/catalog/:id/queue/me", h.QueueEntry.Leave)
+		api.POST("/catalog/:id/purchase", h.QueueEntry.Purchase)
 
 		// Демо-ручки под флагом: expire-now сжигает все выданные права на
 		// товар, simulate заводит до сотни покупателей. На публичном стенде
