@@ -103,6 +103,11 @@ func (r *CatalogRepository) SaveEmbedding(ctx context.Context, id uuid.UUID, emb
 }
 
 func (r *CatalogRepository) GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error) {
+
+	if len(item.Embedding) == 0 {
+		return []domain.CatalogItem{}, nil
+	}
+
 	query := `
 		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
 		FROM catalog_items
