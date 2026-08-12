@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     container_name: avito-queue-postgres
     restart: unless-stopped
 
@@ -57,6 +57,10 @@ services:
       # Демо-ручки (expire-now, simulate) нужны для показа, поэтому в compose
       # включены. По умолчанию в конфиге они выключены.
       DEMO_ENABLED: ${DEMO_ENABLED:-true}
+      #ключ для гигачата
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY}
+
+      
     volumes:
       - ./configs:/app/configs
     depends_on:
