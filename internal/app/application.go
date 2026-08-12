@@ -19,7 +19,6 @@ const shutdownTimeout = 5 * time.Second
 
 type App struct {
 	repositories *Repositories
-	services     *Services
 	httpServer   *rest.Server
 	logger       *slog.Logger
 }
@@ -41,7 +40,6 @@ func New(ctx context.Context, conf *config.Config) (*App, error) {
 
 	return &App{
 		repositories: repos,
-		services:     svc,
 		httpServer:   server,
 		logger:       logger,
 	}, nil
@@ -49,13 +47,6 @@ func New(ctx context.Context, conf *config.Config) (*App, error) {
 
 func (a *App) Run(ctx context.Context) error {
 	a.logger.Info("starting application")
-
-	go func() {
-		time.Sleep(2 * time.Second)
-
-		a.logger.Info("starting embeddings warmup...")
-		a.services.Catalog.WarmupEmbeddings(context.Background())
-	}()
 
 	errChan := make(chan error, 1)
 
