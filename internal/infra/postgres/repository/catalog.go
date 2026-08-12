@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pgvector/pgvector-go"
 
 	"avito-queue/internal/domain"
 )
@@ -91,44 +92,51 @@ func (r *CatalogRepository) GetItemByID(ctx context.Context, id uuid.UUID) (doma
 	return item, nil
 }
 
+func (r *CatalogRepository) SaveEmbedding(ctx context.Context, id uuid.UUID, embedding []float32) error {
+	query := `UPDATE catalog_items SET embedding = $1 WHERE id = $2`
+
+	_, err := db(ctx, r.pool).Exec(ctx, query, pgvector.NewVector(embedding), id)
+	if err != nil {
+		return fmt.Errorf("failed to save embedding: %w", err)
+	}
+	return nil
+}
+
 // GetSimilarItems — лоты той же категории, у которых ещё остались невыкупленные
 // единицы: предлагать распроданный товар взамен распроданного бессмысленно.
 // Удержанные права (granted_count) в фильтр не входят — они могут сгореть,
 // и слот вернётся.
 func (r *CatalogRepository) GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error) {
+	// Ищем по косинусному расстоянию (embedding <=> $3)
 	query := `
 		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
 		FROM catalog_items
-		WHERE category = $1 AND id != $2 AND deleted_at IS NULL
+		WHERE category = $1 
+		  AND id != $2 
+		  AND deleted_at IS NULL
 		  AND used_count < total_stock
-		ORDER BY created_at, id
+		  AND embedding IS NOT NULL
+		ORDER BY embedding <=> $3
 		LIMIT 20`
 
-	rows, err := db(ctx, r.pool).Query(ctx, query, item.Category, item.ID)
+	rows, err := db(ctx, r.pool).Query(ctx, query, item.Category, item.ID, pgvector.NewVector(item.Embedding))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get catalog items: %w", err)
+		return nil, fmt.Errorf("failed to get similar items via vector: %w", err)
 	}
 	defer rows.Close()
 
 	var items []domain.CatalogItem
 	for rows.Next() {
-		var item domain.CatalogItem
+		var i domain.CatalogItem
 		err := rows.Scan(
-			&item.ID,
-			&item.Name,
-			&item.PriceKopecks,
-			&item.TotalStock,
-			&item.HoldTTLSeconds,
-			&item.GrantedCount,
-			&item.UsedCount,
-			&item.Category,
-			&item.SellerName,
-			&item.CreatedAt,
+			&i.ID, &i.Name, &i.PriceKopecks, &i.TotalStock,
+			&i.HoldTTLSeconds, &i.GrantedCount, &i.UsedCount,
+			&i.Category, &i.SellerName, &i.CreatedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan catalog item: %w", err)
+			return nil, fmt.Errorf("failed to scan similar item: %w", err)
 		}
-		items = append(items, item)
+		items = append(items, i)
 	}
 
 	if err := rows.Err(); err != nil {
