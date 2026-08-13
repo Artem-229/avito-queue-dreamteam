@@ -27,15 +27,24 @@ type Embedder interface {
 	Invalidate(text string)
 }
 
+// queueCounter — размер очереди по товару.
+type queueCounter interface {
+	CountByStatus(ctx context.Context, itemID uuid.UUID, status domain.QueueEntryStatus) (int, error)
+}
+
 type CatalogService struct {
 	repo     CatalogRepository
 	embedder Embedder
+	queue    queueCounter
+	chance   chanceCalculator
 }
 
-func NewCatalogService(repo CatalogRepository, embedder Embedder) *CatalogService {
+func NewCatalogService(repo CatalogRepository, embedder Embedder, queue queueCounter, chance chanceCalculator) *CatalogService {
 	return &CatalogService{
 		repo:     repo,
 		embedder: embedder,
+		queue:    queue,
+		chance:   chance,
 	}
 }
 
@@ -48,12 +57,32 @@ func (s *CatalogService) GetCatalog(ctx context.Context) ([]domain.CatalogItem, 
 	return items, nil
 }
 
-func (s *CatalogService) GetCatalogItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error) {
+// GetCatalogItem — карточка товара вместе с оценкой шанса до входа в очередь.
+func (s *CatalogService) GetCatalogItem(ctx context.Context, id uuid.UUID) (domain.CatalogItemCard, error) {
 	item, err := s.repo.GetItemByID(ctx, id)
 	if err != nil {
-		return domain.CatalogItem{}, fmt.Errorf("services.GetCatalogItem: %w", err)
+		return domain.CatalogItemCard{}, fmt.Errorf("services.GetCatalogItem: %w", err)
 	}
-	return item, nil
+
+	queueSize, err := s.queue.CountByStatus(ctx, id, domain.QueueEntryStatusWaiting)
+	if err != nil {
+		return domain.CatalogItemCard{}, fmt.Errorf("services.GetCatalogItem: counting queue: %w", err)
+	}
+
+	card := domain.CatalogItemCard{CatalogItem: item, QueueSize: queueSize}
+
+	if item.UsedCount >= item.TotalStock {
+		return card, nil
+	}
+
+	percent, basis, err := s.chance.For(ctx, id, queueSize+1, item.GrantedCount, item.UsedCount, item.TotalStock)
+	if err != nil {
+		return domain.CatalogItemCard{}, fmt.Errorf("services.GetCatalogItem: calculating chance: %w", err)
+	}
+
+	card.ChanceIfJoin = &domain.PurchaseChance{Percent: percent, Basis: basis}
+
+	return card, nil
 }
 
 func (s *CatalogService) GetSimilarItems(ctx context.Context, id uuid.UUID) ([]domain.CatalogItem, error) {

@@ -11,26 +11,26 @@ import (
 )
 
 type Handlers struct {
-	Catalog *CatalogHandler
-	Queue   *QueueHandler
-	Demo    *DemoHandler
-	Stats   *StatsHandler
-	db      Pinger
+	Catalog    *CatalogHandler
+	Demo       *DemoHandler
+	Stats      *StatsHandler
+	QueueEntry *QueueEntryHandler
+	db         Pinger
 }
 
 func New(
 	catalog *CatalogHandler,
-	queue *QueueHandler,
 	demo *DemoHandler,
 	stats *StatsHandler,
+	queueEntry *QueueEntryHandler,
 	db Pinger,
 ) *Handlers {
 	return &Handlers{
-		Catalog: catalog,
-		Queue:   queue,
-		Demo:    demo,
-		Stats:   stats,
-		db:      db,
+		Catalog:    catalog,
+		Demo:       demo,
+		Stats:      stats,
+		QueueEntry: queueEntry,
+		db:         db,
 	}
 }
 

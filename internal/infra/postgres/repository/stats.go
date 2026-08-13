@@ -26,39 +26,32 @@ func NewStatsRepository(pool *pgxpool.Pool) *StatsRepository {
 const itemStatsQuery = `
 SELECT c.id,
        c.name,
-       COUNT(*) FILTER (WHERE q.status = 'waiting') AS waiting,
-       COUNT(*) FILTER (WHERE q.status = 'granted') AS granted,
+       COUNT(*) FILTER (WHERE e.status = 'waiting') AS waiting,
+       COUNT(*) FILTER (WHERE e.status = 'granted') AS granted,
        GREATEST(c.total_stock - c.granted_count - c.used_count, 0) AS stock_left
   FROM catalog_items c
-  LEFT JOIN queue q ON q.item_id = c.id
+  LEFT JOIN queue_entries e ON e.item_id = c.id
  WHERE c.deleted_at IS NULL
  GROUP BY c.id, c.name, c.total_stock, c.granted_count, c.used_count
  ORDER BY waiting DESC, granted DESC, c.name`
 
-// rightsStatsQuery — судьба выданных прав. used и expired берутся из
-// purchase_rights, а не из queue: право — то, что мы обещали пользователю, и
-// честность демонстрации меряется именно по нему.
+// rightsStatsQuery — судьба выданных прав. Считается по тем же статусам
+// участия: право — то, что мы обещали пользователю, и честность демонстрации
+// меряется именно по нему.
 const rightsStatsQuery = `
-SELECT COUNT(*) FILTER (WHERE status = 'used')    AS purchased,
-       COUNT(*) FILTER (WHERE status = 'expired') AS expired
-  FROM purchase_rights`
+SELECT COUNT(*) FILTER (WHERE status = 'purchased') AS purchased,
+       COUNT(*) FILTER (WHERE status = 'expired')   AS expired
+  FROM queue_entries`
 
 // avgWaitQuery — среднее ожидание от постановки в очередь до выдачи права.
-// LATERAL берёт последнюю запись очереди перед выдачей: после сгоревшего
-// права пользователь встаёт заново, и старая попытка к этому праву отношения
-// не имеет. AVG по пустому множеству даёт NULL — отсюда указатель в Go.
+// После слияния таблиц это разность двух колонок одной строки: раньше здесь
+// был LATERAL, подбиравший запись очереди к каждому праву, потому что связать
+// их напрямую было нечем. AVG по пустому множеству даёт NULL — отсюда
+// указатель в Go.
 const avgWaitQuery = `
-SELECT AVG(EXTRACT(EPOCH FROM (pr.created_at - q.created_at)))
-  FROM purchase_rights pr
-  JOIN LATERAL (
-        SELECT created_at
-          FROM queue q
-         WHERE q.user_id = pr.user_id
-           AND q.item_id = pr.item_id
-           AND q.created_at <= pr.created_at
-         ORDER BY q.created_at DESC
-         LIMIT 1
-       ) q ON TRUE`
+SELECT AVG(EXTRACT(EPOCH FROM (granted_at - created_at)))
+  FROM queue_entries
+ WHERE granted_at IS NOT NULL`
 
 // Collect собирает сводку тремя запросами без транзакции: это витрина для
 // дашборда, а не источник решения о выдаче права. Транзакция дала бы

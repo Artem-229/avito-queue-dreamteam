@@ -59,8 +59,7 @@ services:
       DEMO_ENABLED: ${DEMO_ENABLED:-true}
       #ключ для гигачата
       GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY}
-      #ключ для админки
-      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-local-development-admin-secret-change-me}
 
       
     volumes:

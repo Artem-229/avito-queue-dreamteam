@@ -30,8 +30,7 @@ type Server struct {
 func NewServer(
 	conf *config.Config,
 	catalogService handlers.CatalogService,
-	queueService handlers.QueueService,
-	purchaseRightService handlers.PurchaseRightService,
+	queueEntryService handlers.QueueEntryService,
 	demoService handlers.DemoService,
 	statsService handlers.StatsService,
 	db handlers.Pinger,
@@ -39,9 +38,9 @@ func NewServer(
 ) *Server {
 	h := handlers.New(
 		handlers.NewCatalogHandler(catalogService),
-		handlers.NewQueueHandler(queueService, purchaseRightService),
 		handlers.NewDemoHandler(demoService),
 		handlers.NewStatsHandler(statsService),
+		handlers.NewQueueEntryHandler(queueEntryService),
 		db,
 	)
 
