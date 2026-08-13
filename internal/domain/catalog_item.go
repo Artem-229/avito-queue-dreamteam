@@ -19,7 +19,7 @@ type CatalogItem struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	DeletedAt      *time.Time `json:"-"`
 
-	Embedding []float32 `json:"-"`
+	HasEmbedding bool `json:"has_embedding"`
 }
 
 type CatalogItemCreateDTO struct {
