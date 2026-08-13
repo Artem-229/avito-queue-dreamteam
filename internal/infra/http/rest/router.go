@@ -2,6 +2,7 @@ package rest
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -30,7 +31,7 @@ func NewRouter(h *handlers.Handlers, conf *config.Config, logger *slog.Logger) *
 	// Вход регистрируется до подключения SessionAuthMiddleware: получить
 	// сессию, уже имея сессию, невозможно.
 	api.POST("/demo/login", h.DemoLogin(conf.Auth.SessionSecret, conf.Auth.SecureCookie))
-	api.POST("/admin/login", h.AdminLogin(conf.Admin.SecretKey))
+	api.POST("/admin/login", middlewares.RateLimitMiddleware(10, 5*time.Minute, middlewares.KeyByIP), h.AdminLogin(conf.Admin.SecretKey))
 
 	api.Use(middlewares.SessionAuthMiddleware(conf.Auth.SessionSecret))
 	api.Use(middlewares.LoggerMiddleware(logger))
@@ -42,7 +43,7 @@ func NewRouter(h *handlers.Handlers, conf *config.Config, logger *slog.Logger) *
 
 		api.GET("/stats", h.Stats.GetStats)
 
-		api.POST("/catalog/:id/queue", h.QueueEntry.Join)
+		api.POST("/catalog/:id/queue", middlewares.RateLimitMiddleware(10, time.Minute, middlewares.KeyByIPAndItem), h.QueueEntry.Join)
 		api.GET("/catalog/:id/queue/me", h.QueueEntry.GetStatus)
 		api.DELETE("/catalog/:id/queue/me", h.QueueEntry.Leave)
 		api.POST("/catalog/:id/purchase", h.QueueEntry.Purchase)
