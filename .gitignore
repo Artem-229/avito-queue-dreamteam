@@ -16,4 +16,3 @@ server
 # артефакты
 cookies.txt
 /configs/embeddings_cache.json
-test_item.json

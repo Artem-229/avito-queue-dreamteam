@@ -10,11 +10,10 @@ import (
 )
 
 type Services struct {
-	PurchaseRight *services.PurchaseRight
-	Catalog       *services.CatalogService
-	Queue         *services.QueueService
-	Demo          *services.DemoService
-	Stats         *services.StatsService
+	QueueEntry *services.QueueEntryService
+	Catalog    *services.CatalogService
+	Demo       *services.DemoService
+	Stats      *services.StatsService
 }
 
 func NewServices(_ context.Context, repositories *Repositories, logger *slog.Logger) *Services {
@@ -27,18 +26,17 @@ func NewServices(_ context.Context, repositories *Repositories, logger *slog.Log
 
 	cachedGigaClient := gigachat.NewCachedEmbedder(gigaClient, "/app/configs/embeddings_cache.json")
 
-	catalogService := services.NewCatalogService(repositories.CatalogRepository, cachedGigaClient)
+	chanceCalculator := services.NewChanceCalculator(repositories.QueueEntryRepo)
 
-	queueService := services.NewQueueService(repositories.QueueRepo, repositories.PurchaseRightRepo, repositories.CatalogRepository, logger)
-	purchaseRightService := services.NewPurchaseRight(repositories.PurchaseRightRepo, repositories.QueueRepo, repositories.CatalogRepository, queueService)
-	demoService := services.NewDemoService(repositories.QueueRepo, repositories.CatalogRepository, repositories.PurchaseRightRepo, queueService)
+	catalogService := services.NewCatalogService(repositories.CatalogRepository, cachedGigaClient, repositories.QueueEntryRepo, chanceCalculator)
+	queueEntryService := services.NewQueueEntryService(repositories.QueueEntryRepo, repositories.CatalogRepository, chanceCalculator)
+	demoService := services.NewDemoService(repositories.QueueEntryRepo, repositories.CatalogRepository, queueEntryService)
 	statsService := services.NewStatsService(repositories.StatsRepo)
 
 	return &Services{
-		PurchaseRight: purchaseRightService,
-		Catalog:       catalogService,
-		Queue:         queueService,
-		Demo:          demoService,
-		Stats:         statsService,
+		QueueEntry: queueEntryService,
+		Catalog:    catalogService,
+		Demo:       demoService,
+		Stats:      statsService,
 	}
 }

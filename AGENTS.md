@@ -29,9 +29,11 @@ MVP сервиса пользовательской очереди на дефи
   /config                       — configs/configuration.yaml через viper + env-переменные
   /domain                       — доменные типы и сентинел-ошибки, без внешних зависимостей
   /infra/http/rest              — gin: server.go, router.go, handlers/, middlewares/, session/
+  /clients/gigachat             — внешний клиент эмбеддингов, вне горячего пути (INV-7)
   /infra/postgres/repository    — репозитории (pgx), транзакции, db(ctx, pool)
-  /services                     — CatalogService, QueueService (Reconcile), PurchaseRight,
-                                  DemoService, StatsService + интеграционные тесты
+  /services                     — CatalogService, QueueEntryService (Reconcile/Buy),
+                                  ChanceCalculator, DemoService, StatsService
+                                  + интеграционные тесты
 /migrations                     — goose, нумерация 00001, 00002, ...
 /docs                           — REQUIREMENTS.md и производные
 ```
@@ -53,7 +55,8 @@ MVP сервиса пользовательской очереди на дефи
 | TTL-литерал в Go-коде вместо `catalog_items.hold_ttl_seconds` | INV-6 |
 | `ORDER BY created_at` без тайбрейкера `user_id` в выборках очереди | INV-10 |
 | `total_stock ==` / `count ==` при проверке распроданности | INV-9 |
-| Запись `queue.status` и `purchase_rights.status` в разных транзакциях | INV-5 |
+| `UPDATE queue_entries SET status` без обновления счётчиков тем же оператором | INV-5 |
+| Арифметика `granted_count`/`used_count` отдельным вызовом из Go | INV-5 |
 | `UPDATE ... SET status` без фильтра по исходному статусу | INV-11 |
 | Новое состояние в ответе API без `message`/`next_step` | INV-8 |
 | Вызов LLM, `http.Client` или `time.Sleep` между `InTx` и COMMIT | INV-7 |
@@ -64,12 +67,24 @@ MVP сервиса пользовательской очереди на дефи
 ## Домен
 
 * **CatalogItem** — `id, name, price_kopecks, total_stock, granted_count, used_count,
-  hold_ttl_seconds, category, seller_name, created_at, deleted_at`.
+  hold_ttl_seconds, category, seller_name, embedding, created_at, deleted_at`.
   `CHECK (granted_count + used_count <= total_stock)` — последняя линия защиты от оверселла.
-* **PurchaseRight** — `id, user_id, item_id, status(granted|used|cancelled|expired),
-  created_at, expires_at`. Партиальный `UNIQUE (user_id, item_id) WHERE status='granted'`.
-* **Queue** — `id, user_id, item_id, status(waiting|granted|purchased|expired|sold_out|cancelled),
-  created_at`. Партиальный `UNIQUE (user_id, item_id) WHERE status IN ('waiting','granted')`.
+  **CatalogItemCard** — то же плюс `queue_size` и `chance_if_join`; отдаётся только
+  карточкой, в списке каталога этих полей нет.
+* **QueueEntry** — `id, user_id, item_id,
+  status(waiting|granted|purchased|expired|sold_out|cancelled),
+  created_at, granted_at, expires_at, resolved_at, initial_position`.
+  Партиальный `UNIQUE (user_id, item_id) WHERE status IN ('waiting','granted')`.
+
+Одно участие — одна строка, от входа в очередь до финального исхода. Отдельной сущности
+«право на покупку» в хранилище нет: право — это участие в статусе `granted` с непросроченным
+`expires_at`. Раньше состояние жило в двух таблицах плюс счётчиках товара и синхронизировалось
+вручную; таблицы слиты миграцией `00006`.
+
+Счётчики товара — производные данные. Их обновляет тот же оператор, который меняет статус
+участия (CTE `counters` в `queue_entries.go`), дельты приходят из `counterDeltas(from, to)` —
+единственного места, где записано, что `granted` удерживает единицу, а `purchased` её
+расходует. Отдельного вызова «поправить счётчик» в Go не существует и заводить его нельзя.
 
 Записи не удаляются, меняется только `status` — история состояний остаётся. Повторный вход
 (после `expired`/`cancelled`/`sold_out`/`purchased`) создаёт новую запись; актуальной считается
@@ -92,8 +107,8 @@ MVP сервиса пользовательской очереди на дефи
 | `GET` | `/health` | без авторизации, пингует БД |
 | `POST` | `/api/v1/demo/login` | выдать подписанную демо-сессию, без авторизации |
 | `GET` | `/api/v1/catalog` | список товаров |
-| `GET` | `/api/v1/catalog/:id` | товар |
-| `GET` | `/api/v1/catalog/:id/similar` | похожие лоты той же категории, только нераспроданные, лимит 20 |
+| `GET` | `/api/v1/catalog/:id` | товар плюс `queue_size` и `chance_if_join` — шанс, если встать сейчас (`null` у распроданного) |
+| `GET` | `/api/v1/catalog/:id/similar` | похожие лоты по векторной близости, только нераспроданные |
 | `POST` | `/api/v1/catalog/:id/queue` | встать в очередь, идемпотентно; возвращает конверт статуса |
 | `GET` | `/api/v1/catalog/:id/queue/me` | статус и позиция; внутри `EnsureAdvanced`; поллится раз в секунду |
 | `DELETE` | `/api/v1/catalog/:id/queue/me` | выйти из очереди; активное право отзывается |
@@ -107,7 +122,8 @@ MVP сервиса пользовательской очереди на дефи
 
 ```json
 {
-  "status": "waiting", "position": 7, "queue_size": 23, "eta_seconds": null,
+  "status": "waiting", "position": 7, "initial_position": 12, "progress_percent": 45,
+  "queue_size": 23, "eta_seconds": null, "chance": { "percent": 61, "basis": "item" },
   "expires_at": null, "server_time": "2026-08-09T12:32:56Z",
   "message": "Вы в очереди. Пожалуйста, подождите освобождения слота.",
   "next_step": { "kind": "wait", "label": "Ожидайте, статус обновится сам" },
@@ -117,7 +133,13 @@ MVP сервиса пользовательской очереди на дефи
 
 * `server_time` обязателен: таймер на фронте считается как `expires_at − server_time` с
   поправкой на часы браузера, а не по локальным часам.
-* `eta_seconds` всегда `null` — осознанно (см. CLAUDE.md §3).
+* `eta_seconds` всегда `null` — осознанно (см. CLAUDE.md §3). Честный ответ на тот же вопрос —
+  `chance`.
+* `chance` приходит только для `waiting`. `percent` — вероятность того, что очередь дойдёт,
+  `basis` — на чём посчитано: `item` (конверсия этого товара), `global` (общая по системе),
+  `default` (данных ещё нет). Клиент обязан различать: выдавать дефолт за измеренное нельзя.
+* `initial_position` и `progress_percent` — полоса продвижения очереди. Отсутствуют, когда
+  рисовать её не на чем (вошёл первым, либо запись создана до появления колонки).
 * `alternatives` (id похожих нераспроданных лотов) заполняется только для `sold_out` и `expired`.
 * Имена состояний совпадают на бэкенде и фронте буква в букву.
 

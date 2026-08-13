@@ -13,8 +13,7 @@ import (
 )
 
 type Repositories struct {
-	PurchaseRightRepo *repository.PurchaseRightRepository
-	QueueRepo         *repository.QueueRepository
+	QueueEntryRepo    *repository.QueueEntryRepository
 	CatalogRepository *repository.CatalogRepository
 	StatsRepo         *repository.StatsRepository
 	pool              *pgxpool.Pool
@@ -23,10 +22,6 @@ type Repositories struct {
 // Pool отдаёт пул для проверок живости (/health).
 func (r *Repositories) Pool() *pgxpool.Pool { return r.pool }
 
-// Дефолт pgxpool — max(4, NumCPU) соединений, и он не выбирался осознанно:
-// каждая транзакция под LockItem держит соединение всё время ожидания
-// блокировки, и при сотне конкурентных запросов (демо-симулятор) узким местом
-// становится не блокировка строки, а нехватка соединений в пуле.
 const (
 	maxConns          = 30
 	minConns          = 5
@@ -57,14 +52,12 @@ func NewRepositories(ctx context.Context, cfg *config.Database) (*Repositories, 
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	purchaseRightRepo := repository.NewPurchaseRightRepo(pool)
-	queueRepo := repository.NewQueueRepo(pool)
+	queueEntryRepo := repository.NewQueueEntryRepo(pool)
 	catalogRepository := repository.NewCatalogRepository(pool)
 	statsRepo := repository.NewStatsRepository(pool)
 
 	return &Repositories{
-		PurchaseRightRepo: purchaseRightRepo,
-		QueueRepo:         queueRepo,
+		QueueEntryRepo:    queueEntryRepo,
 		CatalogRepository: catalogRepository,
 		StatsRepo:         statsRepo,
 		pool:              pool,

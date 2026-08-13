@@ -12,9 +12,10 @@ import (
 
 type demoQueueRepo interface {
 	InTx(ctx context.Context, fn func(ctx context.Context) error) error
+	ExpireNow(ctx context.Context, itemID uuid.UUID) error
 }
 
-// demoQueueService — часть QueueService, нужная демо-ручкам: Entry для
+// demoQueueService — часть QueueEntryService, нужная демо-ручкам: Entry для
 // simulate (настоящий вход в очередь, не подделка состояния) и Reconcile для
 // expire-now (сразу отдать освободившийся слот следующему).
 type demoQueueService interface {
@@ -22,23 +23,21 @@ type demoQueueService interface {
 	Reconcile(ctx context.Context, itemID uuid.UUID) error
 }
 
-type demoPurchaseRightRepo interface {
-	ExpireNow(ctx context.Context, itemID uuid.UUID) error
+type demoCatalogRepo interface {
+	LockItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
 }
 
 type DemoService struct {
-	queueRepo         demoQueueRepo
-	catalogRepo       CatalogRepo
-	purchaseRightRepo demoPurchaseRightRepo
-	queue             demoQueueService
+	queueRepo   demoQueueRepo
+	catalogRepo demoCatalogRepo
+	queue       demoQueueService
 }
 
-func NewDemoService(queueRepo demoQueueRepo, catalogRepo CatalogRepo, purchaseRightRepo demoPurchaseRightRepo, queue demoQueueService) *DemoService {
+func NewDemoService(queueRepo demoQueueRepo, catalogRepo demoCatalogRepo, queue demoQueueService) *DemoService {
 	return &DemoService{
-		queueRepo:         queueRepo,
-		catalogRepo:       catalogRepo,
-		purchaseRightRepo: purchaseRightRepo,
-		queue:             queue,
+		queueRepo:   queueRepo,
+		catalogRepo: catalogRepo,
+		queue:       queue,
 	}
 }
 
@@ -51,7 +50,7 @@ func (d *DemoService) ExpireNow(ctx context.Context, itemID uuid.UUID) error {
 			return fmt.Errorf("locking item: %w", err)
 		}
 
-		if err := d.purchaseRightRepo.ExpireNow(ctx, itemID); err != nil {
+		if err := d.queueRepo.ExpireNow(ctx, itemID); err != nil {
 			return fmt.Errorf("expiring purchase rights: %w", err)
 		}
 
