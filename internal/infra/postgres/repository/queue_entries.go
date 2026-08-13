@@ -18,9 +18,10 @@ import (
 // раньше одно участие описывалось двумя строками в разных таблицах, которые
 // приходилось держать согласованными вручную.
 //
-// Счётчики catalog_items.granted_count/used_count здесь не трогаются: их
-// пересчитывает триггер queue_entries_sync_counters по переходу статуса.
-// Арифметики распределения в Go больше нет вообще.
+// Счётчики catalog_items.granted_count/used_count двигает тот же оператор,
+// который меняет статус участия: в каждом мутирующем запросе есть CTE counters
+// с дельтами из counterDeltas (INV-5). Отдельного вызова «поправить счётчик»
+// из Go не существует, поэтому забыть обновить одно из двух невозможно.
 type QueueEntryRepository struct {
 	pool *pgxpool.Pool
 }
@@ -351,9 +352,9 @@ func (q *QueueEntryRepository) NeedsReconcile(ctx context.Context, itemID uuid.U
 }
 
 // CountByStatus — число участий товара в заданном статусе. Reconcile считает
-// granted и purchased по этой таблице, а не по счётчикам товара: счётчики
-// обновляет триггер, и прочитанная до изменений строка товара их уже не
-// отражает.
+// granted и purchased по этой таблице, а не по счётчикам прочитанного товара:
+// строку товара вернул LockItem в начале транзакции, а ExpireOverdue успел
+// сдвинуть счётчики после этого, и в структуре в памяти они уже устарели.
 func (q *QueueEntryRepository) CountByStatus(ctx context.Context, itemID uuid.UUID, status domain.QueueEntryStatus) (int, error) {
 	query := `SELECT count(*) FROM queue_entries WHERE item_id = $1 AND status = $2`
 
