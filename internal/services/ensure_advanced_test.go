@@ -86,7 +86,7 @@ func (m *mockAdvanceCatalogRepo) AdjustCounts(ctx context.Context, id uuid.UUID,
 	return nil
 }
 
-func (m *mockAdvanceCatalogRepo) GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error) {
+func (m *mockAdvanceCatalogRepo) GetSimilarItems(ctx context.Context, id uuid.UUID) ([]domain.CatalogItem, error) {
 	return nil, nil
 }
 

@@ -23,7 +23,7 @@ func NewCatalogRepository(db *pgxpool.Pool) *CatalogRepository {
 
 func (r *CatalogRepository) GetItems(ctx context.Context) ([]domain.CatalogItem, error) {
 	query := `
-		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
+		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, (embedding IS NOT NULL)
 		FROM catalog_items
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -49,6 +49,7 @@ func (r *CatalogRepository) GetItems(ctx context.Context) ([]domain.CatalogItem,
 			&item.Category,
 			&item.SellerName,
 			&item.CreatedAt,
+			&item.HasEmbedding,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan catalog item: %w", err)
@@ -65,7 +66,7 @@ func (r *CatalogRepository) GetItems(ctx context.Context) ([]domain.CatalogItem,
 
 func (r *CatalogRepository) GetItemByID(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error) {
 	query := `
-	SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
+	SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, (embedding IS NOT NULL)
 	FROM catalog_items
 	WHERE id = $1 AND deleted_at IS NULL
 	`
@@ -82,6 +83,7 @@ func (r *CatalogRepository) GetItemByID(ctx context.Context, id uuid.UUID) (doma
 		&item.Category,
 		&item.SellerName,
 		&item.CreatedAt,
+		&item.HasEmbedding,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -102,23 +104,18 @@ func (r *CatalogRepository) SaveEmbedding(ctx context.Context, id uuid.UUID, emb
 	return nil
 }
 
-func (r *CatalogRepository) GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error) {
-
-	if len(item.Embedding) == 0 {
-		return []domain.CatalogItem{}, nil
-	}
-
+func (r *CatalogRepository) GetSimilarItems(ctx context.Context, id uuid.UUID) ([]domain.CatalogItem, error) {
 	query := `
-		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
+		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, (embedding IS NOT NULL)
 		FROM catalog_items
 		WHERE id != $1 
 		  AND deleted_at IS NULL
 		  AND used_count < total_stock
 		  AND embedding IS NOT NULL
-		ORDER BY embedding <=> $2
+		ORDER BY embedding <=> (SELECT embedding FROM catalog_items WHERE id = $1)
 		LIMIT 5`
 
-	rows, err := db(ctx, r.pool).Query(ctx, query, item.ID, pgvector.NewVector(item.Embedding))
+	rows, err := db(ctx, r.pool).Query(ctx, query, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get similar items via vector: %w", err)
 	}
@@ -128,26 +125,29 @@ func (r *CatalogRepository) GetSimilarItems(ctx context.Context, item domain.Cat
 	for rows.Next() {
 		var i domain.CatalogItem
 		err := rows.Scan(
-			&i.ID, &i.Name, &i.PriceKopecks, &i.TotalStock,
-			&i.HoldTTLSeconds, &i.GrantedCount, &i.UsedCount,
-			&i.Category, &i.SellerName, &i.CreatedAt,
+			&i.ID,
+			&i.Name,
+			&i.PriceKopecks,
+			&i.TotalStock,
+			&i.HoldTTLSeconds,
+			&i.GrantedCount,
+			&i.UsedCount,
+			&i.Category,
+			&i.SellerName,
+			&i.CreatedAt,
+			&i.HasEmbedding,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan similar item: %w", err)
 		}
 		items = append(items, i)
 	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows error in similar catalog items: %w", err)
-	}
-
 	return items, nil
 }
 
 func (r *CatalogRepository) GetItemsWithoutEmbeddings(ctx context.Context) ([]domain.CatalogItem, error) {
 	query := `
-		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
+		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, false
 		FROM catalog_items
 		WHERE deleted_at IS NULL AND embedding IS NULL
 	`
@@ -162,9 +162,17 @@ func (r *CatalogRepository) GetItemsWithoutEmbeddings(ctx context.Context) ([]do
 	for rows.Next() {
 		var item domain.CatalogItem
 		err := rows.Scan(
-			&item.ID, &item.Name, &item.PriceKopecks, &item.TotalStock,
-			&item.HoldTTLSeconds, &item.GrantedCount, &item.UsedCount,
-			&item.Category, &item.SellerName, &item.CreatedAt,
+			&item.ID,
+			&item.Name,
+			&item.PriceKopecks,
+			&item.TotalStock,
+			&item.HoldTTLSeconds,
+			&item.GrantedCount,
+			&item.UsedCount,
+			&item.Category,
+			&item.SellerName,
+			&item.CreatedAt,
+			&item.HasEmbedding,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan item: %w", err)
@@ -177,7 +185,7 @@ func (r *CatalogRepository) GetItemsWithoutEmbeddings(ctx context.Context) ([]do
 
 func (r *CatalogRepository) LockItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error) {
 	query := `
-		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at
+		SELECT id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, (embedding IS NOT NULL)
 		FROM catalog_items
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE`
@@ -198,6 +206,7 @@ func (r *CatalogRepository) LockItem(ctx context.Context, id uuid.UUID) (domain.
 		&item.Category,
 		&item.SellerName,
 		&item.CreatedAt,
+		&item.HasEmbedding,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -230,14 +239,14 @@ func (r *CatalogRepository) AdjustCounts(ctx context.Context, id uuid.UUID, gran
 	return nil
 }
 
-func (r *CatalogRepository) CreateItem(ctx context.Context, item domain.CatalogItem) error {
+func (r *CatalogRepository) CreateItem(ctx context.Context, item domain.CatalogItem, embedding []float32) error {
 	query := `
 		INSERT INTO catalog_items (id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, embedding)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
-	var emb pgvector.Vector
-	if len(item.Embedding) > 0 {
-		emb = pgvector.NewVector(item.Embedding)
+	var emb interface{}
+	if len(embedding) > 0 {
+		emb = pgvector.NewVector(embedding)
 	}
 
 	_, err := db(ctx, r.pool).Exec(ctx, query,
@@ -252,17 +261,12 @@ func (r *CatalogRepository) UpdateItem(ctx context.Context, item domain.CatalogI
 	query := `
 		UPDATE catalog_items 
 		SET name = $2, price_kopecks = $3, total_stock = $4, hold_ttl_seconds = $5, 
-		    category = $6, seller_name = $7, embedding = $8
+		    category = $6, seller_name = $7
 		WHERE id = $1 AND deleted_at IS NULL
 	`
-	var emb interface{}
-	if len(item.Embedding) > 0 {
-		emb = pgvector.NewVector(item.Embedding)
-	}
-
 	_, err := db(ctx, r.pool).Exec(ctx, query,
 		item.ID, item.Name, item.PriceKopecks, item.TotalStock,
-		item.HoldTTLSeconds, item.Category, item.SellerName, emb,
+		item.HoldTTLSeconds, item.Category, item.SellerName,
 	)
 	return err
 }
