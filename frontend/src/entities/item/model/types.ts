@@ -1,3 +1,7 @@
+import { type PurchaseChance } from '@/shared/lib/chance';
+
+export type { PurchaseChance };
+
 export interface Item {
   id: string;
   title: string;
@@ -14,6 +18,9 @@ export interface Item {
   /** Сколько живёт выданное право на покупку — для шкалы таймера. */
   holdTtlSeconds: number;
   queueEnabled: boolean;
+  /** Шанс купить, если встать в очередь сейчас. Есть только на карточке одного
+   * товара (GET /catalog/:id); в списке каталога — null. */
+  chance: PurchaseChance | null;
   emoji: string;
   accent: string;
 }

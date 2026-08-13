@@ -9,6 +9,9 @@ export interface QueueStatusDto {
   status: QueueStatus;
   message: string;
   position?: number;
+  initial_position?: number;
+  progress_percent?: number;
+  chance?: { percent: number; basis: string } | null;
   queue_size: number;
   expires_at: string | null;
   eta_seconds: number | null;
@@ -28,6 +31,9 @@ export function toQueueEntry(dto: QueueStatusDto, itemId: string): QueueEntry {
     message: dto.message,
     nextStep: dto.next_step,
     position: dto.position ?? 0,
+    initialPosition: dto.initial_position ?? null,
+    progressPercent: dto.progress_percent ?? null,
+    chance: dto.chance ?? null,
     queueSize: dto.queue_size,
     expiresAt: dto.expires_at,
     etaSeconds: dto.eta_seconds,

@@ -41,6 +41,14 @@ describe('catalogItemToItem', () => {
     ).toBe(true);
   });
 
+  it('переносит шанс покупки с карточки товара, а в списке его нет', () => {
+    expect(catalogItemToItem(dto).chance).toBeNull();
+    expect(
+      catalogItemToItem({ ...dto, chance_if_join: { percent: 72, basis: 'item' } })
+        .chance,
+    ).toEqual({ percent: 72, basis: 'item' });
+  });
+
   it('без счётчиков считает весь тираж свободным', () => {
     const item = catalogItemToItem({
       ...dto,
