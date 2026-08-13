@@ -3,6 +3,10 @@
  * queue.status в Postgres, плюс виртуальное not_in_queue, которого в таблице нет:
  * бэкенд отдаёт его конвертом, чтобы у каждого состояния были message и next_step.
  */
+import { type PurchaseChance } from '@/shared/lib/chance';
+
+export type { PurchaseChance };
+
 export type QueueStatus =
   | 'not_in_queue'
   | 'waiting'
@@ -37,6 +41,12 @@ export interface QueueEntry {
   nextStep: NextStep;
   /** Позиция в очереди, 1 — следующий на выдачу права. 0 вне статуса waiting. */
   position: number;
+  /** Позиция на момент входа. null у записей до появления колонки. */
+  initialPosition: number | null;
+  /** Прогресс продвижения очереди 0..100, посчитан бэкендом. null, если недоступен. */
+  progressPercent: number | null;
+  /** Шанс, что очередь дойдёт до пользователя. null вне ожидания. */
+  chance: PurchaseChance | null;
   queueSize: number;
   expiresAt: string | null;
   /** Всегда null: честная оценка требует данных о конверсии права в покупку. */

@@ -16,6 +16,7 @@ const item: Item = {
   available: 5,
   soldOut: false,
   queueEnabled: true,
+  chance: null,
   emoji: '👟',
   accent: '#965EEB',
 };

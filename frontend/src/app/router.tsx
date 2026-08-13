@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppLayout } from '@/widgets/layout/AppLayout';
+import { AdminPage } from '@/pages/AdminPage';
 import { CatalogPage } from '@/pages/CatalogPage';
 import { CheckoutPage } from '@/pages/CheckoutPage';
 import { ItemPage } from '@/pages/ItemPage';
@@ -24,6 +25,7 @@ export const router = createBrowserRouter(
         { path: '/ui-kit', element: <UiKitPage /> },
         { path: '/simulator', element: <SimulatorPage /> },
         { path: '/metrics', element: <MetricsPage /> },
+        { path: '/admin', element: <AdminPage /> },
         { path: '*', element: <NotFoundPage /> },
       ],
     },

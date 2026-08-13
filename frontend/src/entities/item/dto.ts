@@ -13,6 +13,8 @@ export interface CatalogItemDto {
   category?: string;
   seller_name?: string;
   created_at?: string;
+  /** Есть только на карточке одного товара, в списке отсутствует. */
+  chance_if_join?: { percent: number; basis: string } | null;
 }
 
 const ACCENTS = ['#965EEB', '#00AAFF', '#04E061', '#FFB020', '#FF6163'];
@@ -44,6 +46,7 @@ export function catalogItemToItem(dto: CatalogItemDto): Item {
     soldOut: used >= dto.total_stock,
     holdTtlSeconds: dto.hold_ttl_seconds ?? 120,
     queueEnabled: true,
+    chance: dto.chance_if_join ?? null,
     sellerName: dto.seller_name ?? 'Продавец на Авито',
     category: dto.category ?? '',
     emoji: pickBy(EMOJIS, dto.id),

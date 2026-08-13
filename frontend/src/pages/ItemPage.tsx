@@ -2,8 +2,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { useItem } from '@/entities/item';
 import { isInQueue, useJoinQueue, useQueueStatus } from '@/entities/queue-entry';
+import { chanceLabel, chanceTone } from '@/shared/lib/chance';
 import { formatPrice } from '@/shared/lib/formatPrice';
-import { Badge, Button, Card, Skeleton } from '@/shared/ui';
+import { Badge, Button, Card, Skeleton, StatusPill } from '@/shared/ui';
 
 import styles from './ItemPage.module.css';
 
@@ -69,6 +70,16 @@ export function ItemPage() {
         </div>
 
         <span className={styles.price}>{formatPrice(item.priceKopecks)}</span>
+
+        {item.queueEnabled && item.chance && !item.soldOut && (
+          <div className={styles.chanceRow}>
+            <StatusPill
+              tone={chanceTone(item.chance.percent)}
+              label={chanceLabel(item.chance)}
+            />
+            <span className={styles.chanceHint}>если встать в очередь сейчас</span>
+          </div>
+        )}
 
         {item.queueEnabled ? (
           <div className={styles.actions}>
