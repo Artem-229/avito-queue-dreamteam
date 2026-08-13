@@ -63,6 +63,9 @@ MVP сервиса пользовательской очереди на дефи
 | Импорт `pgx`, `gin` или `net/http` в `internal/domain` | правило зависимостей |
 | Новая ручка покупки помимо `POST /catalog/:id/purchase` | INV-2 |
 | Бизнес-логика состояний очереди на фронте | контракт: истина только на бэке |
+| Вызов эмбеддингов или LLM в горячем пути (статус, каталог, конверт очереди) | векторы считаются прогревом и при правке товара |
+| Запись в каталог мимо группы `/api/v1/admin/*` | админский ключ — единственный путь правки |
+| TTL или размер тиража литералом в Go вместо полей товара | правила очереди настраиваются в админке, а не в коде |
 
 ## Домен
 
@@ -116,6 +119,20 @@ MVP сервиса пользовательской очереди на дефи
 | `GET` | `/api/v1/stats` | метрики: очереди по товарам, конверсия права в покупку, среднее ожидание |
 | `POST` | `/api/v1/demo/items/:id/expire-now` | демо: сжечь выданные права (только при `DEMO_ENABLED`) |
 | `POST` | `/api/v1/demo/simulate` | демо: N конкурентных входов, 1–100 (только при `DEMO_ENABLED`) |
+| `POST` | `/api/v1/admin/login` | проверка ключа админа, без авторизации; токена не выдаёт |
+| `POST` | `/api/v1/admin/catalog` | создать товар (вектор считается сразу) |
+| `PATCH` | `/api/v1/admin/catalog/:id` | изменить товар; смена названия/категории пересчитывает вектор |
+| `DELETE` | `/api/v1/admin/catalog/:id` | мягкое удаление (`deleted_at`) |
+
+Админские ручки требуют заголовок `X-Admin-Key` (сверяется с `ADMIN_SECRET_KEY` через
+`middlewares.ValidateAdminKey` — единственное место сравнения) **и** обычную сессию: группа
+`/admin` лежит внутри `/api/v1`, где уже включён `SessionAuthMiddleware`. Пустой
+`ADMIN_SECRET_KEY` → `503 ADMIN_DISABLED`, приложение при этом стартует штатно. Коды:
+`ADMIN_FORBIDDEN`, `ADMIN_DISABLED`.
+
+Ограничение частоты (счётчик в памяти процесса, `middlewares/rate_limit.go`):
+`POST /admin/login` — 10 за 5 минут по IP, `POST /catalog/:id/queue` — 10 в минуту по паре
+IP + товар (за одним NAT сидят разные покупатели, общий лимит по IP отрезал бы честных).
 
 Конверт статуса — единый для POST/GET/DELETE ручек очереди, поле `status` принимает
 `not_in_queue | waiting | granted | purchased | expired | sold_out | cancelled`:
@@ -146,10 +163,13 @@ MVP сервиса пользовательской очереди на дефи
 ## Как запустить
 
 ```bash
+cp .env.example .env           # ключи GigaChat и админки; без них сервис работает,
+                               # но без похожих лотов и админки
 docker compose up -d --build   # postgres + migrator + app + frontend
 curl http://localhost:8080/health
 ```
 
+Фронт — `:3000`, API — `:8080`, админка — `:3000/admin` (ссылки в шапке нет).
 Запуск бэкенда с хоста без Docker и запуск тестов — README «Быстрый старт» и «Тесты»
 (наружу Postgres проброшен на **5433**, только на `127.0.0.1`).
 
@@ -157,8 +177,8 @@ curl http://localhost:8080/health
 
 ```bash
 go build ./cmd/... ./internal/... && go vet ./internal/...
-TEST_DATABASE_DSN="postgres://postgres:postgres@localhost:5433/avito_queue?sslmode=disable" \
-  go test -race -count=1 ./internal/...
+go test -race -count=1 ./internal/...   # база по умолчанию — compose на :5433,
+                                        # TEST_DATABASE_DSN нужен только если она в другом месте
 golangci-lint run              # .golangci.yaml; forbidigo охраняет INV-4
 cd frontend && npm run lint && npm run typecheck && npm run test
 ```
@@ -187,6 +207,8 @@ CI (`.github/workflows/lint.yml`): golangci-lint, бэкенд-тесты про
 3. Если изменился контракт — обновлены «HTTP API» здесь и в README.
 4. Нет мёртвого кода, закомментированных блоков и `TODO` без номера задачи.
 5. PR прочитал человек. Автомерж запрещён, финальная ответственность на команде.
+6. Всё запушено: новые файлы добавлены в git (`git status` чистый), ветка влита в `main`.
+   Незакоммиченный тест и незапушенная фича для проверяющего не существуют.
 
 ## Чего не делать
 
