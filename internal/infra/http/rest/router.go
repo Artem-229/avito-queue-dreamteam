@@ -30,9 +30,11 @@ func NewRouter(h *handlers.Handlers, conf *config.Config, logger *slog.Logger) *
 	// Вход регистрируется до подключения SessionAuthMiddleware: получить
 	// сессию, уже имея сессию, невозможно.
 	api.POST("/demo/login", h.DemoLogin(conf.Auth.SessionSecret, conf.Auth.SecureCookie))
+	api.POST("/admin/login", h.AdminLogin(conf.Admin.SecretKey))
 
 	api.Use(middlewares.SessionAuthMiddleware(conf.Auth.SessionSecret))
 	api.Use(middlewares.LoggerMiddleware(logger))
+
 	{
 		api.GET("/catalog", h.Catalog.GetList)
 		api.GET("/catalog/:id", h.Catalog.GetByID)
@@ -54,6 +56,14 @@ func NewRouter(h *handlers.Handlers, conf *config.Config, logger *slog.Logger) *
 			demo.POST("/items/:id/expire-now", h.Demo.ExpireNow)
 			demo.POST("/simulate", h.Demo.Simulate)
 		}
+	}
+
+	admin := api.Group("/admin")
+	admin.Use(middlewares.AdminAuthMiddleware(conf.Admin.SecretKey))
+	{
+		admin.POST("/catalog", h.Catalog.Create)
+		admin.PATCH("/catalog/:id", h.Catalog.Patch)
+		admin.DELETE("/catalog/:id", h.Catalog.Delete)
 	}
 
 	return router

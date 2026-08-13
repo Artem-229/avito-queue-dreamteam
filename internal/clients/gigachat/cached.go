@@ -66,3 +66,14 @@ func (c *CachedEmbedder) CreateEmbedding(ctx context.Context, text string) ([]fl
 
 	return emb, nil
 }
+
+func (c *CachedEmbedder) Invalidate(text string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.cache[text]; exists {
+		delete(c.cache, text)
+		_ = c.save()
+		fmt.Printf("[GIGACHAT CACHE]: Вектор удален из кэша для текста: %s\n", text)
+	}
+}

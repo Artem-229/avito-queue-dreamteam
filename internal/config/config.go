@@ -15,6 +15,7 @@ type Config struct {
 	Database   *Database   `mapstructure:"database"`
 	Auth       Auth        `mapstructure:"auth"`
 	Demo       Demo        `mapstructure:"demo"`
+	Admin      Admin       `mapstructure:"admin"`
 }
 
 type Auth struct {
@@ -29,6 +30,17 @@ type Auth struct {
 
 type Demo struct {
 	Enabled bool `mapstructure:"enabled"`
+}
+
+// Admin — доступ к редактированию каталога (POST/PATCH/DELETE /catalog).
+type Admin struct {
+	// SecretKey задаётся только переменной окружения ADMIN_SECRET_KEY, в
+	// файле конфига его нет по той же причине, что и Auth.SessionSecret.
+	// В отличие от SessionSecret, отсутствие этого ключа НЕ останавливает
+	// приложение при старте (см. validate()) — админка второстепенна
+	// относительно основного пользовательского сценария,
+	// AdminAuthMiddleware сам отвечает 503, если ключ пуст.
+	SecretKey string `mapstructure:"secret_key"`
 }
 
 type Logger struct {
@@ -62,6 +74,7 @@ var dbEnvBindings = map[string]string{
 	"auth.session_secret": "AUTH_SESSION_SECRET",
 	"auth.secure_cookie":  "AUTH_SECURE_COOKIE",
 	"demo.enabled":        "DEMO_ENABLED",
+	"admin.secret_key":    "ADMIN_SECRET_KEY",
 }
 
 // minSessionSecretLen — минимальная длина секрета подписи сессии. HMAC-SHA256
@@ -106,6 +119,10 @@ func ReadConfig() (*Config, error) {
 
 // validate роняет приложение на старте, если сессии нечем подписывать —
 // иначе оно выглядело бы рабочим, не имея никакой защиты личности.
+//
+// Admin.SecretKey сюда сознательно не добавлен: при пустом ключе сервер
+// должен продолжать нормально работать для обычных пользователей — только
+// сама админка становится недоступна (503 от AdminAuthMiddleware).
 func (c *Config) validate() error {
 	if len(c.Auth.SessionSecret) < minSessionSecretLen {
 		return fmt.Errorf(

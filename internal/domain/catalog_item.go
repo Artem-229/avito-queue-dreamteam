@@ -19,7 +19,25 @@ type CatalogItem struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	DeletedAt      *time.Time `json:"-"`
 
-	Embedding []float32 `json:"-"`
+	HasEmbedding bool `json:"has_embedding"`
+}
+
+type CatalogItemCreateDTO struct {
+	Name           string `json:"name" binding:"required"`
+	PriceKopecks   int64  `json:"price_kopecks" binding:"required,min=0"`
+	TotalStock     int    `json:"total_stock" binding:"required,min=1"`
+	HoldTTLSeconds int    `json:"hold_ttl_seconds" binding:"required,min=1"`
+	Category       string `json:"category" binding:"required"`
+	SellerName     string `json:"seller_name" binding:"required"`
+}
+
+type CatalogItemPatchDTO struct {
+	Name           *string `json:"name"`
+	PriceKopecks   *int64  `json:"price_kopecks"`
+	TotalStock     *int    `json:"total_stock"`
+	HoldTTLSeconds *int    `json:"hold_ttl_seconds"`
+	Category       *string `json:"category"`
+	SellerName     *string `json:"seller_name"`
 }
 
 // CatalogItemCard — товар плюс то, что нужно только карточке: сколько человек

@@ -31,7 +31,7 @@ type catalogRepository interface {
 	// LockItem блокирует строку товара первым запросом транзакции (INV-3).
 	LockItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
 	GetItemByID(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
-	GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error)
+	GetSimilarItems(ctx context.Context, id uuid.UUID) ([]domain.CatalogItem, error)
 }
 
 type chanceCalculator interface {
@@ -303,12 +303,12 @@ func (q *QueueEntryService) buildResponse(ctx context.Context, snapshot domain.Q
 // Пока читаются напрямую из каталога; когда появится кэш рекомендаций (REC-04),
 // поменяется только источник — контракт ответа тот же.
 func (q *QueueEntryService) alternatives(ctx context.Context, itemID uuid.UUID) ([]uuid.UUID, error) {
-	item, err := q.CatalogRepo.GetItemByID(ctx, itemID)
+	_, err := q.CatalogRepo.GetItemByID(ctx, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("getting item: %w", err)
 	}
 
-	similar, err := q.CatalogRepo.GetSimilarItems(ctx, item)
+	similar, err := q.CatalogRepo.GetSimilarItems(ctx, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("getting similar items: %w", err)
 	}
