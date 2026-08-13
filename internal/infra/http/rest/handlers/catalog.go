@@ -12,7 +12,7 @@ import (
 
 type CatalogService interface {
 	GetCatalog(ctx context.Context) ([]domain.CatalogItem, error)
-	GetCatalogItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
+	GetCatalogItem(ctx context.Context, id uuid.UUID) (domain.CatalogItemCard, error)
 	GetSimilarItems(ctx context.Context, id uuid.UUID) ([]domain.CatalogItem, error)
 }
 

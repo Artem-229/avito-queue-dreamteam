@@ -21,3 +21,11 @@ type CatalogItem struct {
 
 	Embedding []float32 `json:"-"`
 }
+
+// CatalogItemCard — товар плюс то, что нужно только карточке: сколько человек
+// уже ждёт и какой шанс у того, кто встанет сейчас.
+type CatalogItemCard struct {
+	CatalogItem
+	QueueSize    int             `json:"queue_size"`
+	ChanceIfJoin *PurchaseChance `json:"chance_if_join"`
+}

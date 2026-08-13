@@ -69,6 +69,8 @@ MVP сервиса пользовательской очереди на дефи
 * **CatalogItem** — `id, name, price_kopecks, total_stock, granted_count, used_count,
   hold_ttl_seconds, category, seller_name, embedding, created_at, deleted_at`.
   `CHECK (granted_count + used_count <= total_stock)` — последняя линия защиты от оверселла.
+  **CatalogItemCard** — то же плюс `queue_size` и `chance_if_join`; отдаётся только
+  карточкой, в списке каталога этих полей нет.
 * **QueueEntry** — `id, user_id, item_id,
   status(waiting|granted|purchased|expired|sold_out|cancelled),
   created_at, granted_at, expires_at, resolved_at, initial_position`.
@@ -105,7 +107,7 @@ MVP сервиса пользовательской очереди на дефи
 | `GET` | `/health` | без авторизации, пингует БД |
 | `POST` | `/api/v1/demo/login` | выдать подписанную демо-сессию, без авторизации |
 | `GET` | `/api/v1/catalog` | список товаров |
-| `GET` | `/api/v1/catalog/:id` | товар |
+| `GET` | `/api/v1/catalog/:id` | товар плюс `queue_size` и `chance_if_join` — шанс, если встать сейчас (`null` у распроданного) |
 | `GET` | `/api/v1/catalog/:id/similar` | похожие лоты по векторной близости, только нераспроданные |
 | `POST` | `/api/v1/catalog/:id/queue` | встать в очередь, идемпотентно; возвращает конверт статуса |
 | `GET` | `/api/v1/catalog/:id/queue/me` | статус и позиция; внутри `EnsureAdvanced`; поллится раз в секунду |
