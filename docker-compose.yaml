@@ -59,8 +59,12 @@ services:
       DEMO_ENABLED: ${DEMO_ENABLED:-true}
       #ключ для гигачата
       GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY}
+      # Ключ админ-панели. Без него админка отключена (вход отдаёт 403). Для
+      # локального запуска годится значение по умолчанию; на стенде задаётся своё
+      # через .env или переменную окружения ADMIN_SECRET_KEY.
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-admin-local-dev-key}
 
-      
+
     volumes:
       - ./configs:/app/configs
     depends_on:
