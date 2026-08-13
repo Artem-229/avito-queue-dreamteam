@@ -35,7 +35,10 @@ func NewRouter(h *handlers.Handlers, conf *config.Config, logger *slog.Logger) *
 	api.Use(middlewares.LoggerMiddleware(logger))
 	{
 		api.GET("/catalog", h.Catalog.GetList)
+		api.POST("/catalog", h.Catalog.Create)
 		api.GET("/catalog/:id", h.Catalog.GetByID)
+		api.PATCH("/catalog/:id", h.Catalog.Patch)
+		api.DELETE("/catalog/:id", h.Catalog.Delete)
 		api.GET("/catalog/:id/similar", h.Catalog.GetSimilarItems)
 
 		api.GET("/stats", h.Stats.GetStats)

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"avito-queue/internal/domain"
 
@@ -15,10 +16,14 @@ type CatalogRepository interface {
 	GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error)
 	SaveEmbedding(ctx context.Context, id uuid.UUID, embedding []float32) error
 	GetItemsWithoutEmbeddings(ctx context.Context) ([]domain.CatalogItem, error)
+	CreateItem(ctx context.Context, item domain.CatalogItem) error
+	UpdateItem(ctx context.Context, item domain.CatalogItem) error
+	DeleteItem(ctx context.Context, id uuid.UUID) error
 }
 
 type Embedder interface {
 	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
+	Invalidate(text string)
 }
 
 type CatalogService struct {
@@ -99,7 +104,7 @@ func (s *CatalogService) WarmupEmbeddings(ctx context.Context) {
 		emb, err := s.embedder.CreateEmbedding(ctx, textToEmbed)
 		if err != nil {
 			fmt.Printf("Ошибка векторизации товара %s: %v\n", item.ID, err)
-			continue // Если с одним товаром беда — идем дальше
+			continue
 		}
 
 		err = s.repo.SaveEmbedding(ctx, item.ID, emb)
@@ -109,4 +114,91 @@ func (s *CatalogService) WarmupEmbeddings(ctx context.Context) {
 	}
 
 	fmt.Println("Прогрев эмбеддингов успешно завершен!")
+}
+
+func (s *CatalogService) CreateItem(ctx context.Context, dto domain.CatalogItemCreateDTO) (domain.CatalogItem, error) {
+	item := domain.CatalogItem{
+		ID:             uuid.New(),
+		Name:           dto.Name,
+		PriceKopecks:   dto.PriceKopecks,
+		TotalStock:     dto.TotalStock,
+		HoldTTLSeconds: dto.HoldTTLSeconds,
+		Category:       dto.Category,
+		SellerName:     dto.SellerName,
+		CreatedAt:      time.Now().UTC(),
+	}
+
+	textToEmbed := fmt.Sprintf("Категория: %s. Название: %s", item.Category, item.Name)
+	if emb, err := s.embedder.CreateEmbedding(ctx, textToEmbed); err == nil {
+		item.Embedding = emb
+	} else {
+		fmt.Printf("Не удалось сгенерировать вектор при создании: %v\n", err)
+	}
+
+	if err := s.repo.CreateItem(ctx, item); err != nil {
+		return domain.CatalogItem{}, fmt.Errorf("services.CreateItem: %w", err)
+	}
+
+	return item, nil
+}
+
+func (s *CatalogService) PatchItem(ctx context.Context, id uuid.UUID, dto domain.CatalogItemPatchDTO) (domain.CatalogItem, error) {
+	item, err := s.repo.GetItemByID(ctx, id)
+	if err != nil {
+		return domain.CatalogItem{}, fmt.Errorf("services.PatchItem (GetItemByID): %w", err)
+	}
+
+	needsNewEmbedding := false
+	oldText := fmt.Sprintf("Категория: %s. Название: %s", item.Category, item.Name)
+
+	if dto.Name != nil && *dto.Name != item.Name {
+		item.Name = *dto.Name
+		needsNewEmbedding = true
+	}
+	if dto.Category != nil && *dto.Category != item.Category {
+		item.Category = *dto.Category
+		needsNewEmbedding = true
+	}
+	if dto.PriceKopecks != nil {
+		item.PriceKopecks = *dto.PriceKopecks
+	}
+	if dto.TotalStock != nil {
+		item.TotalStock = *dto.TotalStock
+	}
+	if dto.HoldTTLSeconds != nil {
+		item.HoldTTLSeconds = *dto.HoldTTLSeconds
+	}
+	if dto.SellerName != nil {
+		item.SellerName = *dto.SellerName
+	}
+
+	if needsNewEmbedding {
+		newText := fmt.Sprintf("Категория: %s. Название: %s", item.Category, item.Name)
+		if emb, err := s.embedder.CreateEmbedding(ctx, newText); err == nil {
+			item.Embedding = emb
+			s.embedder.Invalidate(oldText)
+		} else {
+			fmt.Printf("Не удалось обновить вектор при Patch: %v\n", err)
+		}
+	}
+
+	if err := s.repo.UpdateItem(ctx, item); err != nil {
+		return domain.CatalogItem{}, fmt.Errorf("services.PatchItem (UpdateItem): %w", err)
+	}
+
+	return item, nil
+}
+
+func (s *CatalogService) DeleteItem(ctx context.Context, id uuid.UUID) error {
+	item, err := s.repo.GetItemByID(ctx, id)
+	if err == nil {
+		textToEmbed := fmt.Sprintf("Категория: %s. Название: %s", item.Category, item.Name)
+		s.embedder.Invalidate(textToEmbed)
+	}
+
+	if err := s.repo.DeleteItem(ctx, id); err != nil {
+		return fmt.Errorf("services.DeleteItem: %w", err)
+	}
+
+	return nil
 }

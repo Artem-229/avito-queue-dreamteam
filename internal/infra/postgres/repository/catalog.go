@@ -229,3 +229,52 @@ func (r *CatalogRepository) AdjustCounts(ctx context.Context, id uuid.UUID, gran
 
 	return nil
 }
+
+func (r *CatalogRepository) CreateItem(ctx context.Context, item domain.CatalogItem) error {
+	query := `
+		INSERT INTO catalog_items (id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, embedding)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`
+	var emb pgvector.Vector
+	if len(item.Embedding) > 0 {
+		emb = pgvector.NewVector(item.Embedding)
+	}
+
+	_, err := db(ctx, r.pool).Exec(ctx, query,
+		item.ID, item.Name, item.PriceKopecks, item.TotalStock,
+		item.HoldTTLSeconds, item.GrantedCount, item.UsedCount,
+		item.Category, item.SellerName, item.CreatedAt, emb,
+	)
+	return err
+}
+
+func (r *CatalogRepository) UpdateItem(ctx context.Context, item domain.CatalogItem) error {
+	query := `
+		UPDATE catalog_items 
+		SET name = $2, price_kopecks = $3, total_stock = $4, hold_ttl_seconds = $5, 
+		    category = $6, seller_name = $7, embedding = $8
+		WHERE id = $1 AND deleted_at IS NULL
+	`
+	var emb interface{}
+	if len(item.Embedding) > 0 {
+		emb = pgvector.NewVector(item.Embedding)
+	}
+
+	_, err := db(ctx, r.pool).Exec(ctx, query,
+		item.ID, item.Name, item.PriceKopecks, item.TotalStock,
+		item.HoldTTLSeconds, item.Category, item.SellerName, emb,
+	)
+	return err
+}
+
+func (r *CatalogRepository) DeleteItem(ctx context.Context, id uuid.UUID) error {
+	query := `UPDATE catalog_items SET deleted_at = NOW() WHERE id = $1`
+	tag, err := db(ctx, r.pool).Exec(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNoItemFound
+	}
+	return nil
+}
