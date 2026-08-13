@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,7 +56,7 @@ func TestValidateAdminKey(t *testing.T) {
 func TestAdminAuthMiddleware_ValidKey(t *testing.T) {
 	r := setupTestRouter("supersecret")
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-Admin-Key", "supersecret")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -71,7 +72,7 @@ func TestAdminAuthMiddleware_ValidKey(t *testing.T) {
 func TestAdminAuthMiddleware_WrongKey(t *testing.T) {
 	r := setupTestRouter("supersecret")
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-Admin-Key", "wrongkey")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -87,7 +88,7 @@ func TestAdminAuthMiddleware_WrongKey(t *testing.T) {
 func TestAdminAuthMiddleware_NoKey(t *testing.T) {
 	r := setupTestRouter("supersecret")
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -104,7 +105,7 @@ func TestAdminAuthMiddleware_NoKey(t *testing.T) {
 func TestAdminAuthMiddleware_NotConfigured(t *testing.T) {
 	r := setupTestRouter("") // сервер без настроенного ADMIN_SECRET_KEY
 
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/protected", nil)
 	req.Header.Set("X-Admin-Key", "anything")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
