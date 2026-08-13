@@ -16,7 +16,7 @@ type CatalogRepo interface {
 	LockItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
 	AdjustCounts(ctx context.Context, id uuid.UUID, grantedDelta, usedDelta int) error
 	GetItemByID(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
-	GetSimilarItems(ctx context.Context, item domain.CatalogItem) ([]domain.CatalogItem, error)
+	GetSimilarItems(ctx context.Context, id uuid.UUID) ([]domain.CatalogItem, error)
 }
 
 type QueueRepo interface {
@@ -295,12 +295,12 @@ func (q *QueueService) buildStatusResponse(ctx context.Context, userID, itemID u
 // статусы поллятся раз в секунду и в альтернативах не нуждаются. Распроданные
 // лоты отсеивает сам GetSimilarItems.
 func (q *QueueService) alternatives(ctx context.Context, itemID uuid.UUID) ([]uuid.UUID, error) {
-	item, err := q.CatalogRepo.GetItemByID(ctx, itemID)
+	_, err := q.CatalogRepo.GetItemByID(ctx, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("getting item: %w", err)
 	}
 
-	similar, err := q.CatalogRepo.GetSimilarItems(ctx, item)
+	similar, err := q.CatalogRepo.GetSimilarItems(ctx, itemID)
 	if err != nil {
 		return nil, fmt.Errorf("getting similar items: %w", err)
 	}
