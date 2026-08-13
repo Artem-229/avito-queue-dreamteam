@@ -23,17 +23,17 @@ func ValidateAdminKey(provided, secretKey string) bool {
 func AdminAuthMiddleware(secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if secretKey == "" {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"code":    "admin_disabled",
-				"message": "Административные функции не настроены на этом сервере",
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, errorBody{
+				Code:    "ADMIN_DISABLED",
+				Message: "Административные функции не настроены на этом сервере",
 			})
 			return
 		}
 
 		if !ValidateAdminKey(c.GetHeader("X-Admin-Key"), secretKey) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"code":    "admin_forbidden",
-				"message": "Неверный или отсутствующий ключ администратора",
+			c.AbortWithStatusJSON(http.StatusForbidden, errorBody{
+				Code:    "ADMIN_FORBIDDEN",
+				Message: "Неверный или отсутствующий ключ администратора",
 			})
 			return
 		}

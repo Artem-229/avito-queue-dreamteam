@@ -58,14 +58,13 @@ func NewRouter(h *handlers.Handlers, conf *config.Config, logger *slog.Logger) *
 		}
 	}
 
-	admin := api.Group("")
+	admin := api.Group("/admin")
 	admin.Use(middlewares.AdminAuthMiddleware(conf.Admin.SecretKey))
-
 	{
 		admin.POST("/catalog", h.Catalog.Create)
 		admin.PATCH("/catalog/:id", h.Catalog.Patch)
 		admin.DELETE("/catalog/:id", h.Catalog.Delete)
-
 	}
+
 	return router
 }

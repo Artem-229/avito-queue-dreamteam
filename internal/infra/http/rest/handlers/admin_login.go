@@ -8,6 +8,13 @@ import (
 	"avito-queue/internal/infra/http/rest/middlewares"
 )
 
+// Коды ошибок конкретно для admin-логина — рядом с остальными Code* в
+// handler.go по смыслу, но объявлены здесь, чтобы не разрастать общий файл
+// сущностями, специфичными только для одной ручки.
+const (
+	CodeAdminForbidden = "ADMIN_FORBIDDEN"
+)
+
 type AdminLoginRequest struct {
 	SecretKey string `json:"secret_key" binding:"required"`
 }
@@ -22,12 +29,12 @@ func (h *Handlers) AdminLogin(secretKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req AdminLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"code": "bad_request", "message": "Некорректный запрос"})
+			respondErrorCode(c, http.StatusBadRequest, CodeInvalidBody, "Некорректный запрос")
 			return
 		}
 
 		if !middlewares.ValidateAdminKey(req.SecretKey, secretKey) {
-			c.JSON(http.StatusForbidden, gin.H{"code": "admin_forbidden", "message": "Неверный ключ"})
+			respondErrorCode(c, http.StatusForbidden, CodeAdminForbidden, "Неверный ключ")
 			return
 		}
 
