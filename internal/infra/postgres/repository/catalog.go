@@ -217,28 +217,6 @@ func (r *CatalogRepository) LockItem(ctx context.Context, id uuid.UUID) (domain.
 	return item, nil
 }
 
-func (r *CatalogRepository) AdjustCounts(ctx context.Context, id uuid.UUID, grantedDelta, usedDelta int) error {
-	if grantedDelta == 0 && usedDelta == 0 {
-		return nil
-	}
-
-	query := `
-		UPDATE catalog_items
-		   SET granted_count = granted_count + $2,
-		       used_count    = used_count + $3
-		 WHERE id = $1`
-
-	tag, err := db(ctx, r.pool).Exec(ctx, query, id, grantedDelta, usedDelta)
-	if err != nil {
-		return fmt.Errorf("adjusting catalog item counts: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNoItemFound
-	}
-
-	return nil
-}
-
 func (r *CatalogRepository) CreateItem(ctx context.Context, item domain.CatalogItem, embedding []float32) error {
 	query := `
 		INSERT INTO catalog_items (id, name, price_kopecks, total_stock, hold_ttl_seconds, granted_count, used_count, category, seller_name, created_at, embedding)

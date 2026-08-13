@@ -24,9 +24,10 @@ type queueEntriesRepository interface {
 	Snapshot(ctx context.Context, userID, itemID uuid.UUID) (domain.QueueSnapshot, error)
 }
 
-// catalogRepository — каталог глазами очереди. AdjustCounts здесь намеренно
-// нет: счётчики товара ведёт триггер queue_entries_sync_counters, и ручная
-// арифметика распределения в Go больше не существует.
+// catalogRepository — каталог глазами очереди. Метода правки счётчиков здесь
+// намеренно нет: granted_count и used_count двигает тот же оператор, который
+// меняет статус участия (INV-5), поэтому ручной арифметики распределения в Go
+// не существует и заводить её обратно нельзя.
 type catalogRepository interface {
 	// LockItem блокирует строку товара первым запросом транзакции (INV-3).
 	LockItem(ctx context.Context, id uuid.UUID) (domain.CatalogItem, error)
@@ -218,7 +219,8 @@ func (q *QueueEntryService) Reconcile(ctx context.Context, itemID uuid.UUID) err
 		}
 
 		// Считаем по queue_entries, а не по счётчикам прочитанного товара:
-		// их обновил триггер уже после того, как LockItem вернул строку.
+		// ExpireOverdue выше сдвинул их тем же оператором, что менял статусы,
+		// уже после того, как LockItem вернул строку в память.
 		used, err := q.QueueRepo.CountByStatus(ctx, itemID, domain.QueueEntryStatusPurchased)
 		if err != nil {
 			return fmt.Errorf("counting purchased: %w", err)
@@ -300,8 +302,10 @@ func (q *QueueEntryService) buildResponse(ctx context.Context, snapshot domain.Q
 }
 
 // alternatives — похожие лоты для состояний, где текущий товар уже не получить.
-// Пока читаются напрямую из каталога; когда появится кэш рекомендаций (REC-04),
-// поменяется только источник — контракт ответа тот же.
+// Читаются репозиторием напрямую, минуя CatalogService: это горячий путь, на
+// котором экран «товар закончился» одновременно видят все ожидавшие, и вызова
+// модели здесь быть не должно (INV-7). Вектор к этому моменту уже посчитан
+// прогревом, запрос остаётся одним индексным поиском.
 func (q *QueueEntryService) alternatives(ctx context.Context, itemID uuid.UUID) ([]uuid.UUID, error) {
 	_, err := q.CatalogRepo.GetItemByID(ctx, itemID)
 	if err != nil {
