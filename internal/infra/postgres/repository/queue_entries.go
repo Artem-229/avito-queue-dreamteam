@@ -150,19 +150,33 @@ func (q *QueueEntryRepository) ExpireOverdue(ctx context.Context, itemID uuid.UU
 
 // ExpireAllOverdue гасит просроченные granted-права по ВСЕМ товарам одним
 // запросом — используется StatsService.GetStats, чтобы дашборд метрик не
-// зависел от того, заходил ли кто-то на конкретную карточку товара. В
-// отличие от ExpireOverdue(itemID), не требует транзакции с LockItem: сам
-// multi-row UPDATE атомарен как единое SQL-выражение, Postgres сам
-// сериализует конфликтующие UPDATE на уровне строк. Двойной декремент
-// невозможен: WHERE status='granted' перепроверяется заново после ожидания
-// на заблокированной строке — уже обработанная другим UPDATE запись просто
-// не пройдёт условие повторно.
+// зависел от того, заходил ли кто-то на конкретную карточку товара.
+//
+// Блокировки берутся в порядке catalog_items → queue_entries (INV-3), как и
+// везде в остальном коде: сначала candidates находит затронутые товары БЕЗ
+// блокировки, потом locked_items блокирует их строки в catalog_items в
+// детерминированном порядке (ORDER BY id — защита от дедлока и между двумя
+// параллельными вызовами самого этого метода), и только после этого
+// изменяются queue_entries. Обратный порядок (сначала queue_entries, потом
+// catalog_items) конфликтовал бы с Reconcile, который всегда лочит товар
+// первым — классический ABBA.
 func (q *QueueEntryRepository) ExpireAllOverdue(ctx context.Context) error {
 	query := `
-		WITH expired AS (
+		WITH candidates AS (
+			SELECT DISTINCT item_id FROM queue_entries
+			 WHERE status = $1 AND expires_at < now()
+		),
+		locked_items AS (
+			SELECT id FROM catalog_items
+			 WHERE id IN (SELECT item_id FROM candidates)
+			 ORDER BY id
+			   FOR NO KEY UPDATE
+		),
+		expired AS (
 			UPDATE queue_entries
-			   SET status = $1, resolved_at = now()
-			 WHERE status = $2 AND expires_at < now()
+			   SET status = $2, resolved_at = now()
+			 WHERE item_id IN (SELECT id FROM locked_items)
+			   AND status = $1 AND expires_at < now()
 			RETURNING item_id
 		),
 		counts AS (
@@ -174,7 +188,7 @@ func (q *QueueEntryRepository) ExpireAllOverdue(ctx context.Context) error {
 		 WHERE catalog_items.id = counts.item_id`
 
 	if _, err := db(ctx, q.pool).Exec(ctx, query,
-		domain.QueueEntryStatusExpired, domain.QueueEntryStatusGranted); err != nil {
+		domain.QueueEntryStatusGranted, domain.QueueEntryStatusExpired); err != nil {
 		return fmt.Errorf("expiring all overdue entries: %w", err)
 	}
 

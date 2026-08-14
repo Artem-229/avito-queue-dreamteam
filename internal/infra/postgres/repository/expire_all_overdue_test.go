@@ -2,114 +2,114 @@ package repository
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"avito-queue/internal/domain"
 )
 
-// TestExpireAllOverdue_ConcurrentWithItemScopedExpiry_NoDoubleDecrement —
-// прямой ответ на возражение Артёма: если ExpireOverdue(itemID) (обычный
-// путь Reconcile) и глобальный ExpireAllOverdue запускаются одновременно на
-// ОДНОМ товаре, granted_count не должен упасть дважды за одну и ту же
-// просроченную запись. Гарантия — не явная блокировка, а перепроверка
-// WHERE status='granted' после ожидания на заблокированной Postgres строке:
-// кто бы ни выполнился вторым, уже обработанная запись просто не пройдёт
-// условие повторно.
-func TestExpireAllOverdue_ConcurrentWithItemScopedExpiry_NoDoubleDecrement(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_DSN")
-	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/avito_queue?sslmode=disable"
-	}
-
-	pool, err := pgxpool.New(context.Background(), dsn)
-	require.NoError(t, err, "parsing test db dsn")
-	defer pool.Close()
-
-	pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if err := pool.Ping(pingCtx); err != nil {
-		t.Skipf("test database is not reachable at %s (start it via docker compose): %v", dsn, err)
-	}
-
-	ctx := context.Background()
-	itemID := uuid.New()
-
-	_, err = pool.Exec(ctx,
-		`INSERT INTO catalog_items (id, name, price_kopecks, total_stock, granted_count, category, seller_name, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, now())`,
-		itemID, "expiry race test item", 10000, 10, 5, "test-category", "test-seller")
-	require.NoError(t, err, "insert test catalog item with granted_count=5")
-	defer pool.Exec(context.Background(), `DELETE FROM catalog_items WHERE id = $1`, itemID)
-
-	// Пять granted-записей, все уже просрочены — ровно то количество,
-	// на которое выставлен granted_count товара.
-	for i := 0; i < 5; i++ {
-		_, err = pool.Exec(ctx,
-			`INSERT INTO queue_entries (id, item_id, user_id, status, granted_at, expires_at)
-			 VALUES ($1, $2, $3, $4, now() - interval '10 minutes', now() - interval '5 minutes')`,
-			uuid.New(), itemID, uuid.New(), domain.QueueEntryStatusGranted)
-		require.NoError(t, err, "insert overdue granted entry")
-	}
-	defer pool.Exec(context.Background(), `DELETE FROM queue_entries WHERE item_id = $1`, itemID)
-
+// TestExpireAllOverdue_ConcurrentWithReconcile_NoDeadlock — доказывает то,
+// что предыдущая версия теста не доказывала: реальное пересечение по
+// времени двух путей гашения (глобального ExpireAllOverdue и точечного
+// Reconcile-пути через LockItem+ExpireOverdue) на одном товаре не приводит
+// ни к дедлоку (SQLSTATE 40P01), ни к двойному декременту granted_count.
+func TestExpireAllOverdue_ConcurrentWithReconcile_NoDeadlock(t *testing.T) {
+	pool := testDBPool(t)
 	repo := NewQueueEntryRepo(pool)
+	catalog := NewCatalogRepository(pool)
+
+	itemID := insertTestItem(t, pool, 10, 120)
+
+	// Реальный путь: встать в очередь, получить право через настоящий
+	// GrantNext (не руками через SQL) — так счётчики товара согласованы с
+	// тем, что реально сделал бы прод-код, а не подделаны вручную.
+	const overdueCount = 5
+	users := make([]uuid.UUID, 0, overdueCount)
+	for i := 0; i < overdueCount; i++ {
+		users = append(users, enterQueue(t, repo, itemID))
+	}
+	granted := grantAll(t, repo, catalog, itemID, overdueCount)
+	require.Len(t, granted, overdueCount, "все ожидающие должны получить право — тираж позволяет")
+
+	// Права реально выданы (expires_at в будущем) — искусственно сдвигаем
+	// срок в прошлое, тем же приёмом, что и демо-ручка ExpireNow, вместо
+	// того чтобы ждать hold_ttl_seconds в реальном времени.
+	_, err := pool.Exec(context.Background(),
+		`UPDATE queue_entries SET expires_at = now() - interval '1 second'
+		 WHERE item_id = $1 AND status = $2`,
+		itemID, domain.QueueEntryStatusGranted)
+	require.NoError(t, err, "push expires_at into the past")
+
+	grantedBefore, _ := itemCounters(t, pool, itemID)
+	require.Equal(t, overdueCount, grantedBefore, "granted_count must reflect the real grants before expiring anything")
+
+	// Барьер в два шага: сначала обе горутины подтверждают, что реально
+	// дошли до точки старта и заблокировались (readyWg), и только когда обе
+	// готовы — открывается канал start. Без этого шага одна горутина могла
+	// бы не успеть дойти до <-start к моменту close(start) и просто не
+	// притормозить вообще — из-за этого предыдущая версия теста иногда
+	// проходила вхолостую, ничего не проверяя.
+	start := make(chan struct{})
+	var readyWg sync.WaitGroup
+	readyWg.Add(2)
 
 	var wg sync.WaitGroup
+	var reconcileErr, globalErr error
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		// Путь Reconcile: ExpireOverdue требует транзакции с LockItem.
-		err := repo.InTx(ctx, func(ctx context.Context) error {
-			if _, err := lockItemForTest(ctx, pool, itemID); err != nil {
+		readyWg.Done()
+		<-start
+		reconcileErr = repo.InTx(context.Background(), func(ctx context.Context) error {
+			if _, err := catalog.LockItem(ctx, itemID); err != nil {
 				return err
 			}
 			_, err := repo.ExpireOverdue(ctx, itemID)
 			return err
 		})
-		if err != nil {
-			t.Errorf("ExpireOverdue error: %v", err)
-		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		if err := repo.ExpireAllOverdue(ctx); err != nil {
-			t.Errorf("ExpireAllOverdue error: %v", err)
-		}
+		readyWg.Done()
+		<-start
+		globalErr = repo.ExpireAllOverdue(context.Background())
 	}()
 
+	readyWg.Wait() // ждём, пока ОБЕ горутины реально дойдут до <-start
+	close(start)   // и только теперь отпускаем их одновременно
 	wg.Wait()
 
-	var grantedCount int
-	err = pool.QueryRow(ctx, `SELECT granted_count FROM catalog_items WHERE id = $1`, itemID).Scan(&grantedCount)
-	require.NoError(t, err)
+	require.NoError(t, reconcileErr, "Reconcile-путь не должен падать (дедлока быть не должно)")
+	require.NoError(t, globalErr, "ExpireAllOverdue не должен падать (дедлока быть не должно)")
 
-	// Было 5, все 5 записей просрочены и должны быть погашены РОВНО один
-	// раз каждая — итог 0, а не -5 (что было бы при двойном декременте).
-	require.Equal(t, 0, grantedCount,
-		"granted_count must be exactly 0 after both expiry paths ran concurrently — a negative value would mean double-decrement")
+	grantedAfter, usedAfter := itemCounters(t, pool, itemID)
+	require.Equal(t, 0, grantedAfter,
+		"granted_count должен стать ровно 0 — отрицательное значение означало бы двойной декремент, положительное — что часть прав не погасилась")
+	require.Equal(t, 0, usedAfter, "expired не должен трогать used_count")
 
-	var expiredCount int
-	err = pool.QueryRow(ctx,
-		`SELECT count(*) FROM queue_entries WHERE item_id = $1 AND status = $2`,
-		itemID, domain.QueueEntryStatusExpired).Scan(&expiredCount)
-	require.NoError(t, err)
-	require.Equal(t, 5, expiredCount, "all 5 overdue entries must end up expired exactly once")
+	for _, userID := range users {
+		require.Equal(t, domain.QueueEntryStatusExpired, statusOf(t, pool, userID, itemID),
+			"каждое из пяти просроченных прав должно погаситься ровно один раз")
+	}
 }
 
-// lockItemForTest — минимальная замена CatalogRepo.LockItem, чтобы тест не
-// тянул зависимость на весь CatalogRepository ради одной блокировки строки.
-func lockItemForTest(ctx context.Context, pool *pgxpool.Pool, itemID uuid.UUID) (uuid.UUID, error) {
-	var id uuid.UUID
-	err := db(ctx, pool).QueryRow(ctx,
-		`SELECT id FROM catalog_items WHERE id = $1 FOR NO KEY UPDATE`, itemID).Scan(&id)
-	return id, err
+// TestExpireAllOverdue_ConcurrentWithReconcile_ManyRounds — тот же сценарий
+// много раз подряд: единичный проход мог случайно не столкнуться с окном
+// гонки даже с барьером (зависит от того, как ОС планирует горутины/сетевые
+// round-trip к Postgres). Повтор снижает шанс ложного зелёного результата.
+func TestExpireAllOverdue_ConcurrentWithReconcile_ManyRounds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping repeated race test in short mode")
+	}
+
+	for round := 0; round < 20; round++ {
+		t.Run("", func(t *testing.T) {
+			TestExpireAllOverdue_ConcurrentWithReconcile_NoDeadlock(t)
+		})
+	}
 }
