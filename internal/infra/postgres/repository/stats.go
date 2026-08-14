@@ -23,11 +23,18 @@ func NewStatsRepository(pool *pgxpool.Pool) *StatsRepository {
 // itemStatsQuery считает очередь в разрезе товаров. LEFT JOIN, чтобы товары
 // без единого участника очереди тоже попали в таблицу с нулями: строка,
 // исчезающая при отсутствии активности, читается как «товар пропал».
+//
+// granted проверяет expires_at > now() в дополнение к статусу: право,
+// которое формально ещё 'granted' в БД, но срок которого истёк, для
+// дашборда уже не активно. Без этого условия метрики показывали бы
+// устаревшие цифры для товаров, которые давно никто не открывал — лениво
+// продвигаемая очередь гасит такие права только при реальном обращении к
+// конкретному товару, а не сама по себе.
 const itemStatsQuery = `
 SELECT c.id,
        c.name,
        COUNT(*) FILTER (WHERE e.status = 'waiting') AS waiting,
-       COUNT(*) FILTER (WHERE e.status = 'granted') AS granted,
+       COUNT(*) FILTER (WHERE e.status = 'granted' AND e.expires_at > now()) AS granted,
        GREATEST(c.total_stock - c.granted_count - c.used_count, 0) AS stock_left
   FROM catalog_items c
   LEFT JOIN queue_entries e ON e.item_id = c.id
@@ -38,9 +45,17 @@ SELECT c.id,
 // rightsStatsQuery — судьба выданных прав. Считается по тем же статусам
 // участия: право — то, что мы обещали пользователю, и честность демонстрации
 // меряется именно по нему.
+//
+// expired учитывает и формально просроченные, но ещё не погашенные granted-
+// записи (status='granted' AND expires_at<=now()) — та же логика, что и в
+// itemStatsQuery выше: для статистики это уже сгоревшее право, дожидаться
+// реального Reconcile для его переклассификации не нужно.
 const rightsStatsQuery = `
 SELECT COUNT(*) FILTER (WHERE status = 'purchased') AS purchased,
-       COUNT(*) FILTER (WHERE status = 'expired')   AS expired
+       COUNT(*) FILTER (
+           WHERE status = 'expired'
+              OR (status = 'granted' AND expires_at <= now())
+       ) AS expired
   FROM queue_entries`
 
 // avgWaitQuery — среднее ожидание от постановки в очередь до выдачи права.
