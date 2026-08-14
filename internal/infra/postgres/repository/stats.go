@@ -84,7 +84,6 @@ SELECT AVG(EXTRACT(EPOCH FROM (granted_at - created_at)))
 // дашборда, а не источник решения о выдаче права. Транзакция дала бы
 // согласованный снимок ценой блокировок на пути у покупателей — цена выше
 // пользы, поллинг всё равно обновит цифры через пару секунд. Все три запроса
-// чисто читающие — GetStats больше не мутирует ничего (INV-2 не трогается).
 func (r *StatsRepository) Collect(ctx context.Context) (domain.QueueStats, error) {
 	stats := domain.QueueStats{Items: []domain.ItemStats{}}
 
