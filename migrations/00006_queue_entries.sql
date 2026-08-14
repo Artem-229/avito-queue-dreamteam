@@ -24,9 +24,7 @@ CREATE TABLE queue_entries
         status <> 'granted' OR (expires_at IS NOT NULL AND granted_at IS NOT NULL))
 );
 
--- Одно активное участие на пару пользователь-товар. Предикат обязан дословно
--- совпадать с ON CONFLICT в QueueEntryRepository.Enter, иначе Postgres не
--- выведет этот индекс и вставка упадёт.
+-- Одно активное участие на пару пользователь-товар.
 CREATE UNIQUE INDEX queue_entries_active
     ON queue_entries (user_id, item_id) WHERE status IN ('waiting', 'granted');
 
@@ -34,12 +32,6 @@ CREATE INDEX queue_entries_fifo ON queue_entries (item_id, status, created_at, u
 CREATE INDEX queue_entries_expiry ON queue_entries (item_id, expires_at) WHERE status = 'granted';
 -- +goose StatementEnd
 
--- +goose StatementBegin
--- Счётчики хранят состояние от старых таблиц, а участий в новой ещё нет.
--- Без обнуления CHECK (granted_count + used_count <= total_stock) отклонит
--- первую же выдачу права на товаре, где раньше кто-то стоял.
-UPDATE catalog_items SET granted_count = 0, used_count = 0;
--- +goose StatementEnd
 
 -- +goose StatementBegin
 DROP TABLE purchase_rights;
