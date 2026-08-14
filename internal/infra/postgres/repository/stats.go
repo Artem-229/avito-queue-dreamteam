@@ -30,12 +30,24 @@ func NewStatsRepository(pool *pgxpool.Pool) *StatsRepository {
 // устаревшие цифры для товаров, которые давно никто не открывал — лениво
 // продвигаемая очередь гасит такие права только при реальном обращении к
 // конкретному товару, а не сама по себе.
+//
+// stock_left компенсирует ту же самую устарелость в granted_count: этот
+// счётчик обновляется только реальными Reconcile/Leave/Buy (INV-2), поэтому
+// в нём могут числиться права, которые для дашборда уже не активны — то же
+// самое условие, что и в granted выше. Не скомпенсировать это здесь — то же
+// самое, что не чинить проблему вообще: остаток на карточке выглядел бы
+// заниженным ровно там, где granted устарел (см. CLAUDE.md, раздел про
+// заниженный остаток).
 const itemStatsQuery = `
 SELECT c.id,
        c.name,
        COUNT(*) FILTER (WHERE e.status = 'waiting') AS waiting,
        COUNT(*) FILTER (WHERE e.status = 'granted' AND e.expires_at > now()) AS granted,
-       GREATEST(c.total_stock - c.granted_count - c.used_count, 0) AS stock_left
+       GREATEST(
+           c.total_stock - c.granted_count - c.used_count
+               + COUNT(*) FILTER (WHERE e.status = 'granted' AND e.expires_at <= now()),
+           0
+       ) AS stock_left
   FROM catalog_items c
   LEFT JOIN queue_entries e ON e.item_id = c.id
  WHERE c.deleted_at IS NULL
@@ -71,7 +83,8 @@ SELECT AVG(EXTRACT(EPOCH FROM (granted_at - created_at)))
 // Collect собирает сводку тремя запросами без транзакции: это витрина для
 // дашборда, а не источник решения о выдаче права. Транзакция дала бы
 // согласованный снимок ценой блокировок на пути у покупателей — цена выше
-// пользы, поллинг всё равно обновит цифры через пару секунд.
+// пользы, поллинг всё равно обновит цифры через пару секунд. Все три запроса
+// чисто читающие — GetStats больше не мутирует ничего (INV-2 не трогается).
 func (r *StatsRepository) Collect(ctx context.Context) (domain.QueueStats, error) {
 	stats := domain.QueueStats{Items: []domain.ItemStats{}}
 
