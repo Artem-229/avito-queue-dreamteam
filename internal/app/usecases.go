@@ -31,7 +31,7 @@ func NewServices(_ context.Context, repositories *Repositories, logger *slog.Log
 	catalogService := services.NewCatalogService(repositories.CatalogRepository, cachedGigaClient, repositories.QueueEntryRepo, chanceCalculator)
 	queueEntryService := services.NewQueueEntryService(repositories.QueueEntryRepo, repositories.CatalogRepository, chanceCalculator)
 	demoService := services.NewDemoService(repositories.QueueEntryRepo, repositories.CatalogRepository, queueEntryService)
-	statsService := services.NewStatsService(repositories.StatsRepo)
+	statsService := services.NewStatsService(repositories.StatsRepo, repositories.QueueEntryRepo)
 
 	return &Services{
 		QueueEntry: queueEntryService,

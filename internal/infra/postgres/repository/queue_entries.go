@@ -147,6 +147,39 @@ func (q *QueueEntryRepository) ExpireOverdue(ctx context.Context, itemID uuid.UU
 	return userIDs, nil
 }
 
+// ExpireAllOverdue гасит просроченные granted-права по ВСЕМ товарам одним
+// запросом — используется StatsService.GetStats, чтобы дашборд метрик не
+// зависел от того, заходил ли кто-то на конкретную карточку товара. В
+// отличие от ExpireOverdue(itemID), не требует транзакции с LockItem: сам
+// multi-row UPDATE атомарен как единое SQL-выражение, Postgres сам
+// сериализует конфликтующие UPDATE на уровне строк. Двойной декремент
+// невозможен: WHERE status='granted' перепроверяется заново после ожидания
+// на заблокированной строке — уже обработанная другим UPDATE запись просто
+// не пройдёт условие повторно.
+func (q *QueueEntryRepository) ExpireAllOverdue(ctx context.Context) error {
+	query := `
+		WITH expired AS (
+			UPDATE queue_entries
+			   SET status = $1, resolved_at = now()
+			 WHERE status = $2 AND expires_at < now()
+			RETURNING item_id
+		),
+		counts AS (
+			SELECT item_id, count(*) AS n FROM expired GROUP BY item_id
+		)
+		UPDATE catalog_items
+		   SET granted_count = granted_count - counts.n
+		  FROM counts
+		 WHERE catalog_items.id = counts.item_id`
+
+	if _, err := db(ctx, q.pool).Exec(ctx, query,
+		domain.QueueEntryStatusExpired, domain.QueueEntryStatusGranted); err != nil {
+		return fmt.Errorf("expiring all overdue entries: %w", err)
+	}
+
+	return nil
+}
+
 // GrantNext выдаёт право первым slots ожидающим по FIFO и возвращает их
 // пользователей. Выборка и выдача — один запрос: раньше это были три шага
 // (найти ожидающих, вставить право, перевести запись очереди), между которыми
